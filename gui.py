@@ -810,8 +810,14 @@ class ThundrGUI(ctk.CTk):
 
 
 def main():
-    app = ThundrGUI()
-    app.mainloop()
+    try:
+        app = ThundrGUI()
+        app.mainloop()
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    except Exception as e:
+        print(f"GUI Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
