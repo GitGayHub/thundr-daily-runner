@@ -30,12 +30,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# Load environment variables from .env if present
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+import thundr.env_loader
 
 import click
 from rich.console import Console
@@ -76,7 +71,12 @@ def cli(verbose: bool) -> None:
     configure_logging(verbose)
 
 
-def _execute_rewards(account_name: Optional[str], dry_run: bool, no_telegram: bool) -> None:
+def _execute_rewards(
+    account_name: Optional[str] = None,
+    dry_run: bool = False,
+    no_telegram: bool = False,
+    force_notify: bool = False,
+) -> None:
     """Internal helper to execute reward claiming for accounts."""
     console.print("[bold cyan]🚀 Starting Thundr Daily Rewards Runner...[/bold cyan]")
 
@@ -133,8 +133,8 @@ def _execute_rewards(account_name: Optional[str], dry_run: bool, no_telegram: bo
             telegram_notifier.notify_single_run(ctx)
 
     # Send batch summary to Telegram
-    if telegram_notifier and len(results) > 1:
-        telegram_notifier.notify_summary(results)
+    if telegram_notifier and (len(results) > 1 or telegram_notifier.mode in ("summary", "digest_2x", "smart_2x")):
+        telegram_notifier.notify_summary(results, force=force_notify)
 
     # Summary table
     table = Table(title="Execution Summary", show_header=True, header_style="bold magenta")
@@ -174,16 +174,20 @@ def _execute_rewards(account_name: Optional[str], dry_run: bool, no_telegram: bo
 @click.option("--all", "all_accounts", is_flag=True, default=False, help="Process all configured accounts.")
 @click.option("--dry-run", is_flag=True, help="Simulate execution without claiming rewards.")
 @click.option("--no-telegram", is_flag=True, help="Disable Telegram notifications for this run.")
+@click.option("--force-notify", is_flag=True, help="Force sending Telegram summary even if throttled.")
 def run_command(
     account_arg: Optional[str],
     account_opt: Optional[str],
     all_accounts: bool,
     dry_run: bool,
     no_telegram: bool,
+    force_notify: bool,
 ) -> None:
     """Claim daily rewards for all configured accounts."""
     target = account_opt or account_arg
-    _execute_rewards(account_name=target, dry_run=dry_run, no_telegram=no_telegram)
+    _execute_rewards(
+        account_name=target, dry_run=dry_run, no_telegram=no_telegram, force_notify=force_notify
+    )
 
 
 @cli.command("claim")
@@ -192,16 +196,20 @@ def run_command(
 @click.option("--all", "all_accounts", is_flag=True, default=False, help="Process all configured accounts.")
 @click.option("--dry-run", is_flag=True, help="Simulate execution without claiming rewards.")
 @click.option("--no-telegram", is_flag=True, help="Disable Telegram notifications for this run.")
+@click.option("--force-notify", is_flag=True, help="Force sending Telegram summary even if throttled.")
 def claim_command(
     account_arg: Optional[str],
     account_opt: Optional[str],
     all_accounts: bool,
     dry_run: bool,
     no_telegram: bool,
+    force_notify: bool,
 ) -> None:
     """Claim daily rewards for all configured accounts or a specific account (alias for 'run')."""
     target = account_opt or account_arg
-    _execute_rewards(account_name=target, dry_run=dry_run, no_telegram=no_telegram)
+    _execute_rewards(
+        account_name=target, dry_run=dry_run, no_telegram=no_telegram, force_notify=force_notify
+    )
 
 
 @cli.command("check")

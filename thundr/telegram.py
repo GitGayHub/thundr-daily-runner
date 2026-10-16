@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
+import thundr.env_loader
+
 import requests
 
 from thundr.state_machine import CrateState, StateMachineContext
@@ -30,11 +32,22 @@ class TelegramNotifier:
         mode: Optional[str] = None,
         tz_name: Optional[str] = None,
     ):
-        self.bot_token = bot_token if bot_token is not None else os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = chat_id if chat_id is not None else os.getenv("TELEGRAM_CHAT_ID")
-        self.mode = (mode if mode is not None else os.getenv("TELEGRAM_MODE", "digest_2x")).lower().strip()
+        self.bot_token = bot_token if bot_token is not None else (
+            os.getenv("THUNDR_TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
+        )
+        self.chat_id = chat_id if chat_id is not None else (
+            os.getenv("THUNDR_TELEGRAM_CHAT_ID") or os.getenv("TELEGRAM_CHAT_ID")
+        )
+        self.mode = (
+            mode
+            if mode is not None
+            else (os.getenv("THUNDR_TELEGRAM_MODE") or os.getenv("TELEGRAM_MODE", "digest_2x"))
+        ).lower().strip()
         self.tz_name = tz_name or os.getenv("APP_TIMEZONE", "Europe/Berlin")
-        self.state_file = Path(__file__).resolve().parent.parent / "data" / "telegram_state.json"
+        if os.getenv("TELEGRAM_STATE_FILE"):
+            self.state_file = Path(os.environ["TELEGRAM_STATE_FILE"])
+        else:
+            self.state_file = Path(__file__).resolve().parent.parent / "data" / "telegram_state.json"
 
         try:
             self.tz = ZoneInfo(self.tz_name)
@@ -227,9 +240,21 @@ class TelegramNotifier:
                 import time
                 last_ts = self._get_last_summary_ts()
                 now_ts = time.time()
-                if (now_ts - last_ts) < (10 * 3600):
-                    logger.info("Cooldown summary skipped in digest_2x mode (sent less than 10 hours ago).")
-                    return False
+                if last_ts > 0:
+                    if (now_ts - last_ts) < (10 * 3600):
+                        logger.info("Cooldown summary skipped in digest_2x mode (sent less than 10 hours ago).")
+                        return False
+                else:
+                    # In stateless environment (e.g. GitHub Actions without cached state)
+                    # allow cooldown summary only during the 2 daily digest windows
+                    if os.getenv("GITHUB_ACTIONS") == "true":
+                        now_utc_hour = datetime.now(timezone.utc).hour
+                        # Windows around 00:00 and 12:00 UTC (matching 00:05 and 12:05 cron runs)
+                        if now_utc_hour not in (0, 1, 12, 13):
+                            logger.info(
+                                f"Cooldown summary skipped in CI digest_2x mode outside digest window (hour {now_utc_hour} UTC)."
+                            )
+                            return False
 
         now_str = datetime.now(self.tz).strftime("%Y-%m-%d %H:%M:%S %Z")
         claimed_count = sum(1 for c in contexts if c.current_state == CrateState.CLAIMED)

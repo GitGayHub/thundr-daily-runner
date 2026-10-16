@@ -2,6 +2,8 @@
 Thundr Daily Rewards Automation Package.
 """
 
+import thundr.env_loader
+
 from thundr.account import (
     AccountConfig,
     AccountManager,

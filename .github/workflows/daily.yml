@@ -21,6 +21,11 @@ on:
           - summary
           - digest_2x
         default: digest_2x
+      force_notify:
+        description: 'Force Telegram summary notification even if throttled?'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: thundr-daily-${{ github.ref }}
@@ -50,6 +55,14 @@ jobs:
         run: |
           playwright install --with-deps chromium
 
+      - name: Restore Telegram State Cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/telegram_state.json
+          key: telegram-state-${{ github.run_id }}
+          restore-keys: |
+            telegram-state-
+
       - name: Run Thundr Daily Claimer
         env:
           THUNDR_ACCOUNTS_JSON: ${{ secrets.THUNDR_ACCOUNTS_JSON }}
@@ -68,7 +81,19 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
-          python cli.py run $DRY_RUN_FLAG
+          FORCE_FLAG=""
+          if [ "${{ inputs.force_notify }}" = "true" ]; then
+            FORCE_FLAG="--force-notify"
+          fi
+          python cli.py run $DRY_RUN_FLAG $FORCE_FLAG
+
+      - name: Save Telegram State Cache
+        if: always()
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: data/telegram_state.json
+          key: telegram-state-${{ github.run_id }}
 
       - name: Upload Claim History & Statistics
         if: always()

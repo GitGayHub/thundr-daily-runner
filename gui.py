@@ -27,12 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# Load environment
-try:
-    from dotenv import load_dotenv
-    load_dotenv(PROJECT_ROOT / ".env")
-except ImportError:
-    pass
+import thundr.env_loader
 
 import customtkinter as ctk
 from tkinter import messagebox

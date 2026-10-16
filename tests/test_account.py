@@ -90,7 +90,12 @@ def test_account_record_secrets_hiding():
     assert "..." in without_secrets["session"]["hashed_token"]
 
 
-def test_account_manager_crud(tmp_path):
+def test_account_manager_crud(monkeypatch, tmp_path):
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_USER_ID", raising=False)
+    monkeypatch.delenv("THUNDR_HASHED_TOKEN", raising=False)
+
     accounts_file = tmp_path / "accounts.json"
     mgr = AccountManager(filepath=accounts_file)
     assert len(mgr.list_accounts()) == 0
