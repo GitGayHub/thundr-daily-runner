@@ -26,9 +26,11 @@ logger = logging.getLogger("thundr.state_machine")
 class CrateState(str, Enum):
     """Lifecycle states for daily crate processing."""
     UNINITIALIZED = "UNINITIALIZED"
+    NOT_AUTHENTICATED = "NOT_AUTHENTICATED"
     CHECKING = "CHECKING"
     READY = "READY"
     COOLDOWN = "COOLDOWN"
+    ERROR = "ERROR"
     CLAIMING = "CLAIMING"
     VERIFYING = "VERIFYING"
     CLAIMED = "CLAIMED"
@@ -38,11 +40,13 @@ class CrateState(str, Enum):
 
 # Valid state transitions
 VALID_TRANSITIONS: Dict[CrateState, Set[CrateState]] = {
-    CrateState.UNINITIALIZED: {CrateState.CHECKING, CrateState.FAILED},
-    CrateState.CHECKING: {CrateState.READY, CrateState.COOLDOWN, CrateState.FAILED},
-    CrateState.READY: {CrateState.CLAIMING, CrateState.FAILED},
-    CrateState.CLAIMING: {CrateState.VERIFYING, CrateState.COOLDOWN, CrateState.UNCERTAIN, CrateState.FAILED},
-    CrateState.VERIFYING: {CrateState.CLAIMED, CrateState.COOLDOWN, CrateState.UNCERTAIN, CrateState.FAILED},
+    CrateState.UNINITIALIZED: {CrateState.NOT_AUTHENTICATED, CrateState.CHECKING, CrateState.ERROR, CrateState.FAILED},
+    CrateState.NOT_AUTHENTICATED: {CrateState.CHECKING, CrateState.ERROR, CrateState.FAILED},
+    CrateState.CHECKING: {CrateState.READY, CrateState.COOLDOWN, CrateState.ERROR, CrateState.FAILED},
+    CrateState.READY: {CrateState.CLAIMING, CrateState.ERROR, CrateState.FAILED},
+    CrateState.CLAIMING: {CrateState.VERIFYING, CrateState.COOLDOWN, CrateState.UNCERTAIN, CrateState.ERROR, CrateState.FAILED},
+    CrateState.VERIFYING: {CrateState.CLAIMED, CrateState.COOLDOWN, CrateState.UNCERTAIN, CrateState.ERROR, CrateState.FAILED},
+    CrateState.ERROR: {CrateState.FAILED},
     CrateState.CLAIMED: set(),      # Terminal
     CrateState.COOLDOWN: set(),     # Terminal
     CrateState.FAILED: set(),       # Terminal
@@ -111,6 +115,12 @@ class DailyCrateStateMachine:
         """Run the full crate claim lifecycle for the given account."""
         ctx = StateMachineContext(username=account.username)
         ctx.record_transition(CrateState.UNINITIALIZED, "Starting lifecycle run")
+
+        if not account.has_session:
+            ctx.record_transition(
+                CrateState.NOT_AUTHENTICATED,
+                f"Account '{account.username}' has no active session, authentication required"
+            )
 
         try:
             # 1. State: CHECKING
@@ -188,11 +198,13 @@ class DailyCrateStateMachine:
 
         except (ThundrAuthError, ThundrRateLimitError) as client_err:
             ctx.error_message = f"{type(client_err).__name__}: {client_err}"
-            ctx.record_transition(CrateState.FAILED, ctx.error_message)
+            ctx.record_transition(CrateState.ERROR, ctx.error_message)
+            ctx.record_transition(CrateState.FAILED, "Execution halted due to client error")
         except Exception as e:
             logger.exception(f"Unhandled error in state machine for '{account.username}': {e}")
             ctx.error_message = f"Unexpected {type(e).__name__}: {e}"
-            ctx.record_transition(CrateState.FAILED, ctx.error_message)
+            ctx.record_transition(CrateState.ERROR, ctx.error_message)
+            ctx.record_transition(CrateState.FAILED, "Execution halted due to unhandled error")
         finally:
             ctx.finish()
 

@@ -3,9 +3,11 @@ Thundr Daily Rewards Automation Package.
 """
 
 from thundr.account import (
+    AccountConfig,
     AccountManager,
     AccountRecord,
     AccountSession,
+    AccountState,
     DailyCrateStatus,
 )
 from thundr.client import (
@@ -21,11 +23,13 @@ from thundr.state_machine import (
 from thundr.storage import HistoryEntry, StorageManager
 from thundr.telegram import TelegramNotifier
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 __all__ = [
+    "AccountConfig",
     "AccountManager",
     "AccountRecord",
     "AccountSession",
+    "AccountState",
     "DailyCrateStatus",
     "ThundrApiClient",
     "ThundrBrowserClient",

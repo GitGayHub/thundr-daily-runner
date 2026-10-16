@@ -1,4 +1,4 @@
-# ⚡ Thundr Daily Rewards Runner v2.0
+# ⚡ Thundr Daily Rewards Runner v2.1.0
 
 > Высоконадежная модульная система для автоматического получения ежедневных наград ([Thundr](https://thundr.com/)), отслеживания баланса монет, истории серий (streaks) и отправки детальных отчетов в Telegram.
 
@@ -8,11 +8,12 @@
 
 ## 🌟 Ключевые возможности
 
-- 🚀 **Гибридная архитектура клиента (API + Headless Browser):**
-  - **Быстрый API-путь:** прямые защищенные HTTP-запросы через `curl_cffi` (с TLS fingerprint impersonation под Chrome 120) и `requests`. Опрос баланса и сбор награды занимают **менее 0.5 секунды** без накладных расходов браузера.
-  - **Автоматическая реавторизация:** встроенный Playwright Chromium используется только для первоначального входа и автоматического продления `hashed_token` при 401 Unauthorized.
+- 🚀 **Гибридная архитектура клиента (Direct API Login + Headless Browser Fallback):**
+  - **Мгновенный прямой вход через API:** авторизация напрямую через `POST https://id.thundr.com/api/users/login` за 0.15 сек без тяжелого браузера.
+  - **Быстрый API-путь:** прямые защищенные HTTP-запросы через `curl_cffi` (с TLS fingerprint impersonation под Chrome 120) и `requests`. Опрос баланса и сбор награды занимают **менее 0.5 секунды**.
+  - **Автоматический браузерный фоллбэк:** Playwright Chromium запускается только в качестве отказоустойчивого резерва при непредвиденных ошибках API или при 401 Unauthorized.
 - 🔄 **Строгая конечная машина состояний (Finite State Machine):**
-  - Полный жизненный цикл: `UNINITIALIZED` ➔ `CHECKING` ➔ `READY` / `COOLDOWN` ➔ `CLAIMING` ➔ `VERIFYING` ➔ `CLAIMED` / `UNCERTAIN` / `FAILED`.
+  - Полный жизненный цикл: `NOT_AUTHENTICATED` ➔ `CHECKING` ➔ `READY` / `COOLDOWN` / `ERROR` ➔ `CLAIMING` ➔ `VERIFYING` ➔ `CLAIMED` / `UNCERTAIN` / `FAILED`.
   - Защита от race conditions, повторных кликов и обрывов сети (idempotency & verification recovery).
 - 👥 **Мульти-аккаунтность:**
   - Поддержка десятков аккаунтов с независимыми сессиями, раздельными балансами и тегами.
@@ -120,6 +121,7 @@ setup.bat
 | Команда | Описание |
 |---|---|
 | `python cli.py run` | Полный цикл: опрос аккаунтов, сбор доступных кейсов, верификация баланса, отправка в Telegram |
+| `python cli.py claim` | Алиас/команда прямого сбора наград для всех аккаунтов или конкретного (`-a <username>`) |
 | `python cli.py run --dry-run` | Симуляция без отправки запроса на сбор |
 | `python cli.py run --no-telegram` | Запуск без отправки сообщений в Telegram |
 | `python cli.py check` | Быстрая проверка баланса монет и статуса кейса без клейма |
@@ -166,13 +168,25 @@ python -m pytest tests/ -v
 ```
 
 Тестовый набор включает:
-- `test_account.py` — проверка маскирования, сериализации и мульти-аккаунтного менеджера.
-- `test_client.py` — проверка кодирования URL, ответа API (200, 401, 409, 429, 500) и авто-реавторизации.
-- `test_state_machine.py` — проверка переходов состояний, восстановления при обрывах сети и идемпотентности.
+- `test_account.py` — проверка маскирования, сериализации, мульти-аккаунтного менеджера и алиасов `AccountConfig`/`AccountState`.
+- `test_client.py` — проверка кодирования URL, прямого входа через API, fallback на Playwright, ответов API (200, 401, 409, 429, 500) и авто-реавторизации.
+- `test_state_machine.py` — проверка переходов состояний (включая `NOT_AUTHENTICATED` и `ERROR`), восстановления при обрывах сети и идемпотентности.
 - `test_storage.py` — проверка записи истории, подсчета суммарных метрик и CSV экспорта.
 - `test_telegram.py` — проверка генерации сообщений, перевода часового пояса в Europe/Berlin и fallback режима.
-- `test_cli.py` — симуляция всех консольных команд.
-- `test_live_api.py` — живые проверки против боевого API id.thundr.com.
+- `test_cli.py` — симуляция всех консольных команд (`run`, `claim`, `check`, `add-account`, `list-accounts`, `export`).
+- `test_live_api.py` — живые контрактные проверки против боевого API id.thundr.com (с пропуском при политиках песочницы).
+
+---
+
+## 📝 Журнал изменений (Changelog)
+
+### v2.1.0
+- 🚀 **Прямой API Login:** Добавлен метод `ThundrApiClient.login()` через `POST https://id.thundr.com/api/users/login` (~0.15 сек). Браузер Playwright теперь выступает в роли надежного fallback при сетевых сбоях или капче.
+- ⚡ **Новая CLI-команда:** Добавлена команда `python cli.py claim` (с поддержкой `-a/--account`, `--all`, `--dry-run`, `--no-telegram`).
+- 🔄 **Строгая модель состояний FSM:** Добавлены состояния `NOT_AUTHENTICATED` и `ERROR` в `CrateState` и диаграмму переходов `VALID_TRANSITIONS`.
+- 👥 **Совместимость API аккаунтов:** В `thundr.account` добавлены алиасы `AccountConfig = AccountRecord` и `AccountState = DailyCrateStatus`.
+- 🛡️ **Устойчивость путей данных:** `StorageManager` и `AccountManager` теперь надежно резолвят пути относительно корня проекта.
+- 🧪 **Расширенный тестовый набор:** Добавлено 8 новых тестов (всего 43 теста, 100% успех).
 
 ---
 

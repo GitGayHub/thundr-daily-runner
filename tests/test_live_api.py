@@ -29,8 +29,8 @@ def test_live_balance_and_crate_status():
         assert status.next_reset_at is not None
         assert "Z" in status.next_reset_at or "+00:00" in status.next_reset_at
     except Exception as e:
-        if "Network error" in str(e) or "policy" in str(e):
-            pytest.skip(f"Live network unavailable: {e}")
+        if "Network error" in str(e) or "policy" in str(e) or "403" in str(e) or "Forbidden" in str(e):
+            pytest.skip(f"Live network unavailable or policy restricted: {e}")
         raise
 
 
@@ -50,6 +50,6 @@ def test_live_state_machine_execution():
         assert ctx.initial_balance is not None
         assert ctx.status is not None
     except Exception as e:
-        if "Network error" in str(e) or "policy" in str(e):
-            pytest.skip(f"Live network unavailable: {e}")
+        if "Network error" in str(e) or "policy" in str(e) or "403" in str(e) or "Forbidden" in str(e):
+            pytest.skip(f"Live network unavailable or policy restricted: {e}")
         raise

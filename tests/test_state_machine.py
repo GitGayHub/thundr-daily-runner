@@ -128,3 +128,36 @@ def test_state_machine_auth_failure(mock_client, test_account):
     assert ctx.current_state == CrateState.FAILED
     assert "ThundrAuthError" in str(ctx.error_message)
     assert ctx.is_success is False
+
+
+def test_state_machine_not_authenticated_initial_transition(mock_client):
+    no_session_account = AccountRecord(
+        username="newbie",
+        password="pwd",
+        session=None,
+    )
+    status = DailyCrateStatus(available=False, coin_balance=0)
+    mock_client.get_crate_status.return_value = status
+
+    sm = DailyCrateStateMachine(mock_client)
+    ctx = sm.run(no_session_account)
+
+    states = [h[0] for h in ctx.state_history]
+    assert CrateState.NOT_AUTHENTICATED in states
+    assert states[0] == CrateState.UNINITIALIZED
+    assert states[1] == CrateState.NOT_AUTHENTICATED
+    assert states[2] == CrateState.CHECKING
+    assert ctx.current_state == CrateState.COOLDOWN
+
+
+def test_state_machine_error_transition_on_api_error(mock_client, test_account):
+    mock_client.get_crate_status.side_effect = Exception("Fatal database crash")
+
+    sm = DailyCrateStateMachine(mock_client)
+    ctx = sm.run(test_account)
+
+    assert ctx.current_state == CrateState.FAILED
+    states = [h[0] for h in ctx.state_history]
+    assert CrateState.ERROR in states
+    assert CrateState.FAILED in states
+

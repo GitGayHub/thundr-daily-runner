@@ -92,8 +92,9 @@ class StorageManager:
         history_file: Optional[str | Path] = None,
         csv_file: Optional[str | Path] = None,
     ):
-        self.history_file = Path(history_file or os.getenv("HISTORY_FILE", "data/history.json"))
-        self.csv_file = Path(csv_file or os.getenv("CSV_FILE", "data/history.csv"))
+        data_dir = Path(__file__).resolve().parent.parent / "data"
+        self.history_file = Path(history_file or os.getenv("HISTORY_FILE", data_dir / "history.json"))
+        self.csv_file = Path(csv_file or os.getenv("CSV_FILE", data_dir / "history.csv"))
         self._entries: List[HistoryEntry] = []
         self._load()
 

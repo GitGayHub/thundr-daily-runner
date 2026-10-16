@@ -51,7 +51,8 @@ class ThundrRateLimitError(ThundrException):
 class ThundrApiError(ThundrException):
     """Generic Thundr API response error."""
     def __init__(self, message: str, status_code: Optional[int] = None, response_text: Optional[str] = None):
-        super().__init__(message)
+        full_msg = f"{message}: {response_text}" if response_text else message
+        super().__init__(full_msg)
         self.status_code = status_code
         self.response_text = response_text
 
@@ -204,6 +205,31 @@ class ThundrApiClient:
             return data
         raise ThundrApiError(f"Failed to claim crate: HTTP {status_code}", status_code, text)
 
+    def login(self, username: str, password: str) -> AccountSession:
+        """Authenticate via direct HTTP API. Returns AccountSession with user_id and hashed_token."""
+        url = f"{self.base_id_url}/api/users/login"
+        status_code, data, text = self._request(
+            "POST",
+            url,
+            json_data={"email": username, "password": password},
+            headers={"Content-Type": "application/json"},
+        )
+        if status_code == 200:
+            user_data = data.get("data") if isinstance(data.get("data"), dict) else data
+            user_id = user_data.get("key") or user_data.get("user_id") or user_data.get("id")
+            hashed_token = user_data.get("hashed_token") or user_data.get("token")
+            if user_id and hashed_token:
+                logger.info(f"Direct API login successful for user '{username}' (User ID: {user_id})")
+                return AccountSession(
+                    user_id=str(user_id),
+                    hashed_token=str(hashed_token),
+                    email=user_data.get("email") or username,
+                )
+            raise ThundrApiError(f"Unexpected response structure from login API: {text}", status_code, text)
+        elif status_code == 401:
+            raise ThundrAuthError(f"Invalid login credentials for '{username}': {text}")
+        raise ThundrApiError(f"Login failed: HTTP {status_code}", status_code, text)
+
 
 class ThundrBrowserClient:
     """Automates browser authentication using Playwright."""
@@ -320,6 +346,17 @@ class ThundrClient:
         self.api = api_client or ThundrApiClient()
         self.browser = browser_client or ThundrBrowserClient()
 
+    def login(self, username: str, password: str) -> AccountSession:
+        """Attempt fast direct API login with fallback to headless browser."""
+        try:
+            return self.api.login(username, password)
+        except Exception as e:
+            logger.warning(
+                f"Direct API login failed for '{username}' ({type(e).__name__}: {e}), "
+                f"falling back to Playwright browser..."
+            )
+            return self.browser.login(username, password)
+
     def ensure_valid_session(self, account: AccountRecord) -> AccountSession:
         """Check session validity, re-authenticating if missing or expired."""
         if account.has_session:
@@ -338,7 +375,7 @@ class ThundrClient:
             )
 
         assert account.password is not None
-        session = self.browser.login(account.username, account.password)
+        session = self.login(account.username, account.password)
         account.session = session
         return session
 
@@ -355,7 +392,7 @@ class ThundrClient:
             return self.api.get_crate_status(account.session.user_id, account.session.hashed_token)
         except ThundrAuthError:
             if auto_reauth and account.has_credentials:
-                logger.info(f"Re-authenticating '{account.username}' after 401...")
+                logger.info(f"Re-authenticating '{account.username}' via browser after 401...")
                 session = self.browser.login(account.username, account.password)  # type: ignore
                 account.session = session
                 return self.api.get_crate_status(session.user_id, session.hashed_token)
@@ -374,7 +411,7 @@ class ThundrClient:
             return self.api.claim_crate(account.session.user_id, account.session.hashed_token)
         except ThundrAuthError:
             if auto_reauth and account.has_credentials:
-                logger.info(f"Re-authenticating '{account.username}' after 401...")
+                logger.info(f"Re-authenticating '{account.username}' via browser after 401...")
                 session = self.browser.login(account.username, account.password)  # type: ignore
                 account.session = session
                 return self.api.claim_crate(session.user_id, session.hashed_token)

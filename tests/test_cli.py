@@ -122,3 +122,33 @@ def test_cli_run(mock_sm_cls, tmp_path, monkeypatch):
     assert "dave" in res.output
     assert "CLAIMED" in res.output
     assert "+15" in res.output
+
+
+@patch("cli.DailyCrateStateMachine")
+def test_cli_claim(mock_sm_cls, tmp_path, monkeypatch):
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "dave", "-p", "pwd"])
+
+    mock_sm = MagicMock()
+    mock_ctx = StateMachineContext(
+        username="dave",
+        current_state=CrateState.CLAIMED,
+        initial_balance=10,
+        final_balance=25,
+        coins_earned=15,
+        status=DailyCrateStatus(streak=3),
+    )
+    mock_sm.run.return_value = mock_ctx
+    mock_sm_cls.return_value = mock_sm
+
+    res = runner.invoke(cli, ["claim", "-a", "dave", "--no-telegram"])
+    assert res.exit_code == 0
+    assert "dave" in res.output
+    assert "CLAIMED" in res.output
+    assert "+15" in res.output
+

@@ -142,3 +142,19 @@ def test_account_manager_env_loading(monkeypatch, tmp_path):
     assert mgr_multi.get_account("multi1") is not None
     assert mgr_multi.get_account("multi2") is not None
     assert mgr_multi.get_account("env_user") is not None
+
+
+def test_account_config_and_state_aliases():
+    from thundr.account import AccountConfig, AccountState
+
+    assert AccountConfig is AccountRecord
+    assert AccountState is DailyCrateStatus
+
+    cfg = AccountConfig(username="bob", password="secretpassword")
+    assert cfg.username == "bob"
+    assert cfg.has_credentials is True
+
+    state = AccountState(available=True, coin_balance=100)
+    assert state.available is True
+    assert state.coin_balance == 100
+

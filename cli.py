@@ -76,12 +76,8 @@ def cli(verbose: bool) -> None:
     configure_logging(verbose)
 
 
-@cli.command("run")
-@click.option("-a", "--account", "account_name", help="Specific account username to process.")
-@click.option("--dry-run", is_flag=True, help="Simulate execution without claiming rewards.")
-@click.option("--no-telegram", is_flag=True, help="Disable Telegram notifications for this run.")
-def run_command(account_name: Optional[str], dry_run: bool, no_telegram: bool) -> None:
-    """Claim daily rewards for all configured accounts."""
+def _execute_rewards(account_name: Optional[str], dry_run: bool, no_telegram: bool) -> None:
+    """Internal helper to execute reward claiming for accounts."""
     console.print("[bold cyan]🚀 Starting Thundr Daily Rewards Runner...[/bold cyan]")
 
     account_mgr = AccountManager()
@@ -151,6 +147,7 @@ def run_command(account_name: Optional[str], dry_run: bool, no_telegram: bool) -
             CrateState.COOLDOWN: "yellow",
             CrateState.FAILED: "red",
             CrateState.UNCERTAIN: "magenta",
+            CrateState.ERROR: "red",
         }.get(r.current_state, "white")
 
         table.add_row(
@@ -164,6 +161,26 @@ def run_command(account_name: Optional[str], dry_run: bool, no_telegram: bool) -
 
     console.print("\n", table)
     console.print("[bold green]✨ All accounts completed![/bold green]")
+
+
+@cli.command("run")
+@click.option("-a", "--account", "account_name", help="Specific account username to process.")
+@click.option("--all", "all_accounts", is_flag=True, default=False, help="Process all configured accounts.")
+@click.option("--dry-run", is_flag=True, help="Simulate execution without claiming rewards.")
+@click.option("--no-telegram", is_flag=True, help="Disable Telegram notifications for this run.")
+def run_command(account_name: Optional[str], all_accounts: bool, dry_run: bool, no_telegram: bool) -> None:
+    """Claim daily rewards for all configured accounts."""
+    _execute_rewards(account_name=account_name, dry_run=dry_run, no_telegram=no_telegram)
+
+
+@cli.command("claim")
+@click.option("-a", "--account", "account_name", help="Specific account username to process.")
+@click.option("--all", "all_accounts", is_flag=True, default=False, help="Process all configured accounts.")
+@click.option("--dry-run", is_flag=True, help="Simulate execution without claiming rewards.")
+@click.option("--no-telegram", is_flag=True, help="Disable Telegram notifications for this run.")
+def claim_command(account_name: Optional[str], all_accounts: bool, dry_run: bool, no_telegram: bool) -> None:
+    """Claim daily rewards for all configured accounts or a specific account (alias for 'run')."""
+    _execute_rewards(account_name=account_name, dry_run=dry_run, no_telegram=no_telegram)
 
 
 @cli.command("check")

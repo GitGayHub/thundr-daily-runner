@@ -137,3 +137,69 @@ def test_hybrid_client_auto_reauth_on_401():
     assert account.session == new_session
     mock_browser.login.assert_called_once_with("alice", "password123")
     assert mock_api.get_crate_status.call_count == 2
+
+
+def test_api_client_login_success():
+    client = ThundrApiClient(prefer_curl_cffi=False)
+    payload = {
+        "ok": True,
+        "data": {
+            "key": "user-uuid-1234",
+            "hashed_token": "abc123hashedtoken=",
+        },
+    }
+    with patch.object(client, "_request") as mock_req:
+        mock_req.return_value = (200, payload, '{"ok": true}')
+        session = client.login("gamasek1", "secretpass")
+
+        assert session.user_id == "user-uuid-1234"
+        assert session.hashed_token == "abc123hashedtoken="
+        assert session.email == "gamasek1"
+        assert session.is_valid is True
+
+        # Verify request parameters
+        method, url = mock_req.call_args[0][:2]
+        json_data = mock_req.call_args[1]["json_data"]
+        assert method == "POST"
+        assert "/api/users/login" in url
+        assert json_data == {"email": "gamasek1", "password": "secretpass"}
+
+
+def test_api_client_login_unauthorized():
+    client = ThundrApiClient(prefer_curl_cffi=False)
+    with patch.object(client, "_request") as mock_req:
+        mock_req.side_effect = ThundrAuthError("HTTP 401 Unauthorized for login")
+        with pytest.raises(ThundrAuthError):
+            client.login("gamasek1", "wrongpass")
+
+
+def test_hybrid_client_login_prefers_api_over_browser():
+    mock_api = MagicMock(spec=ThundrApiClient)
+    mock_browser = MagicMock(spec=ThundrBrowserClient)
+
+    api_session = AccountSession(user_id="api-u1", hashed_token="api-tok1")
+    mock_api.login.return_value = api_session
+
+    client = ThundrClient(api_client=mock_api, browser_client=mock_browser)
+    session = client.login("user1", "pass1")
+
+    assert session == api_session
+    mock_api.login.assert_called_once_with("user1", "pass1")
+    mock_browser.login.assert_not_called()
+
+
+def test_hybrid_client_login_falls_back_to_browser_on_api_error():
+    mock_api = MagicMock(spec=ThundrApiClient)
+    mock_browser = MagicMock(spec=ThundrBrowserClient)
+
+    mock_api.login.side_effect = ThundrNetworkError("API connection timeout")
+    browser_session = AccountSession(user_id="browser-u1", hashed_token="browser-tok1")
+    mock_browser.login.return_value = browser_session
+
+    client = ThundrClient(api_client=mock_api, browser_client=mock_browser)
+    session = client.login("user1", "pass1")
+
+    assert session == browser_session
+    mock_api.login.assert_called_once_with("user1", "pass1")
+    mock_browser.login.assert_called_once_with("user1", "pass1")
+

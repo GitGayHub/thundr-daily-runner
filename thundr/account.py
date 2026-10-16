@@ -179,7 +179,8 @@ class AccountManager:
     """Manages multi-account storage, loading from environment variables and disk."""
 
     def __init__(self, filepath: Optional[str | Path] = None):
-        self.filepath = Path(filepath or os.getenv("ACCOUNTS_FILE", "data/accounts.json"))
+        default_file = Path(__file__).resolve().parent.parent / "data" / "accounts.json"
+        self.filepath = Path(filepath or os.getenv("ACCOUNTS_FILE", default_file))
         self._accounts: Dict[str, AccountRecord] = {}
         self.load()
 
@@ -334,3 +335,18 @@ class AccountManager:
             if claimed:
                 acc.last_claimed_at = acc.last_checked_at
             self.save()
+
+
+# Backward-compatibility domain aliases as specified in requirements
+AccountConfig = AccountRecord
+AccountState = DailyCrateStatus
+
+__all__ = [
+    "mask_secret",
+    "AccountSession",
+    "DailyCrateStatus",
+    "AccountRecord",
+    "AccountConfig",
+    "AccountState",
+    "AccountManager",
+]
