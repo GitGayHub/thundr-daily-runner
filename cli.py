@@ -108,6 +108,9 @@ def _execute_rewards(account_name: Optional[str], dry_run: bool, no_telegram: bo
     results = []
     for acc in accounts:
         console.print(f"\n[bold yellow]▶ Processing account: {acc.username}[/bold yellow]")
+        if acc.last_reward_coins is None:
+            acc.last_reward_coins = storage_mgr.get_last_reward_for_user(acc.username)
+
         ctx = state_machine.run(acc, dry_run=dry_run)
         results.append(ctx)
 
@@ -119,6 +122,7 @@ def _execute_rewards(account_name: Optional[str], dry_run: bool, no_telegram: bo
                 acc.username,
                 ctx.status,
                 claimed=(ctx.current_state == CrateState.CLAIMED),
+                reward_coins=ctx.coins_earned if ctx.coins_earned > 0 else None,
             )
 
         # Record in history
@@ -232,23 +236,29 @@ def check_command(account_arg: Optional[str], account_opt: Optional[str]) -> Non
     table.add_column("Available?", justify="center")
     table.add_column("Balance", justify="right")
     table.add_column("Streak", justify="right")
+    table.add_column("Time Remaining", style="bold yellow")
+    table.add_column("Last Reward", justify="right", style="green")
     table.add_column("Next Reset", style="dim")
 
     for acc in accounts:
         try:
             status = client.get_crate_status(acc)
             avail_str = "[bold green]YES[/bold green]" if status.available else "[yellow]COOLDOWN[/yellow]"
+            rem_str = TelegramNotifier.format_time_remaining(status.next_reset_at)
+            last_rew = f"+{acc.last_reward_coins}" if acc.last_reward_coins else "N/A"
             table.add_row(
                 acc.username,
                 avail_str,
                 str(status.coin_balance),
                 str(status.streak),
+                rem_str,
+                last_rew,
                 status.next_reset_at or "N/A",
             )
             # Update cache
             account_mgr.update_status(acc.username, status)
         except Exception as e:
-            table.add_row(acc.username, "[red]ERROR[/red]", "N/A", "N/A", str(e)[:30])
+            table.add_row(acc.username, "[red]ERROR[/red]", "N/A", "N/A", "N/A", "N/A", str(e)[:30])
 
     console.print(table)
 
@@ -387,6 +397,22 @@ def export_command(fmt: str, output: Optional[str]) -> None:
         with open(dest, "w", encoding="utf-8") as f:
             json.dump([e.to_dict() for e in storage.get_history(limit=1000)], f, indent=2)
         console.print(f"[bold green]✔ History exported to JSON: {dest}[/bold green]")
+
+
+@cli.command("daemon")
+@click.option("--interval", "-i", default=3, help="Check interval in hours (default: 3).")
+@click.option("--dry-run", is_flag=True, help="Simulate without claiming.")
+def daemon_command(interval: int, dry_run: bool) -> None:
+    """Run continuous background monitoring daemon every N hours."""
+    import time
+    console.print(f"[bold green]🕒 Starting Thundr Daemon (interval: {interval} hour(s))...[/bold green]")
+    try:
+        while True:
+            _execute_rewards(dry_run=dry_run)
+            console.print(f"[dim]Sleeping for {interval} hours... Press Ctrl+C to stop.[/dim]")
+            time.sleep(interval * 3600)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Daemon stopped by user.[/yellow]")
 
 
 if __name__ == "__main__":

@@ -52,9 +52,36 @@ class TelegramNotifier:
         try:
             dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
             local_dt = dt.astimezone(self.tz)
-            return local_dt.strftime("%Y-%m-%d %H:%M:%S %Z")
+            return local_dt.strftime("%d.%m %H:%M:%S")
         except Exception:
             return iso_str
+
+    @staticmethod
+    def format_time_remaining(iso_str: Optional[str]) -> str:
+        """Calculate remaining time until iso_str timestamp as human-readable string."""
+        if not iso_str:
+            return "неизвестно"
+        try:
+            dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            diff = dt - now
+            total_seconds = int(diff.total_seconds())
+            if total_seconds <= 0:
+                return "доступен сейчас! ⚡"
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            if hours > 0:
+                return f"{hours} ч {minutes} мин"
+            else:
+                return f"{minutes} мин"
+        except Exception:
+            return "неизвестно"
+
+    @staticmethod
+    def _format_last_reward(coins: Optional[int]) -> str:
+        if coins is not None and coins > 0:
+            return f"+{coins} монет"
+        return "нет данных"
 
     def send_raw_message(self, text: str, parse_mode: Optional[str] = "HTML") -> bool:
         """Send message via Telegram Bot API with fallback for parse errors."""
@@ -112,43 +139,48 @@ class TelegramNotifier:
 
         safe_user = html.escape(ctx.username)
         now_str = datetime.now(self.tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+        rem_str = self.format_time_remaining(ctx.status.next_reset_at if ctx.status else None)
+        reset_time = self._to_local_str(ctx.status.next_reset_at if ctx.status else None)
+        last_rew_str = self._format_last_reward(ctx.last_reward_coins)
 
         if ctx.current_state == CrateState.CLAIMED:
             earned = f"+{ctx.coins_earned}" if ctx.coins_earned > 0 else "0"
             streak_bonus_text = " (Streak Bonus Activated! 🌟)" if ctx.status and ctx.status.streak_bonus else ""
             msg = (
-                f"🎁 <b>Thundr Daily Reward Claimed!</b>\n\n"
-                f"👤 <b>Account:</b> <code>{safe_user}</code>\n"
-                f"💰 <b>Coins:</b> {ctx.final_balance} (<b>{earned}</b> coins)\n"
-                f"🔥 <b>Streak:</b> {ctx.status.streak if ctx.status else 1} days{streak_bonus_text}\n"
-                f"⏰ <b>Next reset:</b> {self._to_local_str(ctx.status.next_reset_at if ctx.status else None)}\n"
-                f"⏱️ <i>Executed at: {now_str}</i>"
+                f"🎁 <b>Thundr — Ежедневная награда получена!</b>\n\n"
+                f"👤 <b>Аккаунт:</b> <code>{safe_user}</code>\n"
+                f"🎉 <b>Выпало:</b> <b>{earned}</b> монет\n"
+                f"💰 <b>Новый баланс:</b> {ctx.final_balance} монет\n"
+                f"🔥 <b>Серия (Streak):</b> {ctx.status.streak if ctx.status else 1} дн.{streak_bonus_text}\n"
+                f"⏳ <b>До следующего кейса:</b> {rem_str} (в {reset_time})\n"
+                f"⏱️ <i>Время проверки: {now_str}</i>"
             )
         elif ctx.current_state == CrateState.COOLDOWN:
-            reset_time = self._to_local_str(ctx.status.next_reset_at if ctx.status else None)
             msg = (
-                f"⏳ <b>Thundr Crate on Cooldown</b>\n\n"
-                f"👤 <b>Account:</b> <code>{safe_user}</code>\n"
-                f"💰 <b>Current Balance:</b> {ctx.initial_balance} coins\n"
-                f"🔥 <b>Streak:</b> {ctx.status.streak if ctx.status else 0} days\n"
-                f"⏰ <b>Next Available:</b> {reset_time}\n"
-                f"⏱️ <i>Checked at: {now_str}</i>"
+                f"⏳ <b>Thundr — Кейс на перезарядке</b>\n\n"
+                f"👤 <b>Аккаунт:</b> <code>{safe_user}</code>\n"
+                f"💰 <b>Текущий баланс:</b> {ctx.final_balance or ctx.initial_balance} монет\n"
+                f"🎁 <b>В прошлый раз выпало:</b> <b>{last_rew_str}</b>\n"
+                f"⏳ <b>Осталось до кейса:</b> <b>{rem_str}</b>\n"
+                f"⏰ <b>Будет доступен:</b> {reset_time}\n"
+                f"🔥 <b>Серия (Streak):</b> {ctx.status.streak if ctx.status else 0} дн.\n"
+                f"⏱️ <i>Время проверки: {now_str}</i>"
             )
         elif ctx.current_state == CrateState.UNCERTAIN:
             msg = (
-                f"⚠️ <b>Thundr Claim Uncertain</b>\n\n"
-                f"👤 <b>Account:</b> <code>{safe_user}</code>\n"
-                f"❓ Status: Claim request was sent, but confirmation is pending.\n"
-                f"📝 <b>Note:</b> {html.escape(ctx.error_message or 'Network timeout during claim')}\n"
-                f"⏱️ <i>Time: {now_str}</i>"
+                f"⚠️ <b>Thundr — Статус не подтверждён</b>\n\n"
+                f"👤 <b>Аккаунт:</b> <code>{safe_user}</code>\n"
+                f"❓ <i>Запрос на открытие отправлен, но ответ не был подтверждён.</i>\n"
+                f"📝 <b>Детали:</b> {html.escape(ctx.error_message or 'Таймаут соединения')}\n"
+                f"⏱️ <i>Время: {now_str}</i>"
             )
         else:
             # FAILED
             msg = (
-                f"❌ <b>Thundr Claim Failed</b>\n\n"
-                f"👤 <b>Account:</b> <code>{safe_user}</code>\n"
-                f"⚠️ <b>Error:</b> <code>{html.escape(ctx.error_message or 'Unknown error')}</code>\n"
-                f"⏱️ <i>Time: {now_str}</i>"
+                f"❌ <b>Thundr — Ошибка проверки</b>\n\n"
+                f"👤 <b>Аккаунт:</b> <code>{safe_user}</code>\n"
+                f"⚠️ <b>Ошибка:</b> <code>{html.escape(ctx.error_message or 'Неизвестная ошибка')}</code>\n"
+                f"⏱️ <i>Время: {now_str}</i>"
             )
 
         return self.send_raw_message(msg)
@@ -169,34 +201,41 @@ class TelegramNotifier:
         cooldown_count = sum(1 for c in contexts if c.current_state == CrateState.COOLDOWN)
         failed_count = sum(1 for c in contexts if c.current_state in (CrateState.FAILED, CrateState.UNCERTAIN))
         total_coins_earned = sum(c.coins_earned for c in contexts)
+        known_total_balance = sum((c.final_balance or c.initial_balance or 0) for c in contexts)
 
         header = (
-            f"📊 <b>Thundr Daily Rewards — Batch Summary</b>\n"
+            f"📊 <b>THUNDR DAILY REPORT — СВОДКА (Batch Summary)</b>\n"
             f"📅 <i>{now_str}</i>\n\n"
-            f"👥 Total Accounts: <b>{len(contexts)}</b>\n"
-            f"🎁 Claimed: <b>{claimed_count}</b> (+{total_coins_earned} coins)\n"
-            f"⏳ Cooldown: <b>{cooldown_count}</b>\n"
-            f"❌ Failed: <b>{failed_count}</b>\n"
+            f"👥 Всего аккаунтов: <b>{len(contexts)}</b>\n"
+            f"🎁 Получено кейсов: <b>{claimed_count}</b> (+{total_coins_earned} монет)\n"
+            f"⏳ В ожидании (Cooldown): <b>{cooldown_count}</b>\n"
+            f"❌ Ошибки: <b>{failed_count}</b>\n"
+            f"💰 Общий баланс: <b>{known_total_balance} монет</b>\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
         )
 
         lines = []
         for ctx in contexts:
             safe_user = html.escape(ctx.username)
+            rem_str = self.format_time_remaining(ctx.status.next_reset_at if ctx.status else None)
+            last_rew_str = self._format_last_reward(ctx.last_reward_coins or (ctx.coins_earned if ctx.coins_earned > 0 else None))
+            streak = ctx.status.streak if ctx.status else 0
+            bal = ctx.final_balance or ctx.initial_balance or 0
+
             if ctx.current_state == CrateState.CLAIMED:
                 lines.append(
-                    f"✅ <code>{safe_user}</code>: +{ctx.coins_earned} coins "
-                    f"(bal: {ctx.final_balance}, streak: {ctx.status.streak if ctx.status else 0}🔥)"
+                    f"✅ <code>{safe_user}</code>: <b>+{ctx.coins_earned} монет</b> "
+                    f"(Баланс: {bal}, 🔥{streak} дн.) | След. через: {rem_str}"
                 )
             elif ctx.current_state == CrateState.COOLDOWN:
                 lines.append(
-                    f"⏳ <code>{safe_user}</code>: Cooldown "
-                    f"(bal: {ctx.final_balance or ctx.initial_balance}, streak: {ctx.status.streak if ctx.status else 0}🔥)"
+                    f"⏳ <code>{safe_user}</code>: {bal} монет | До кейса: <b>{rem_str}</b> "
+                    f"| Прошлый: {last_rew_str} (🔥{streak} дн.)"
                 )
             elif ctx.current_state == CrateState.UNCERTAIN:
-                lines.append(f"⚠️ <code>{safe_user}</code>: Uncertain (check manually)")
+                lines.append(f"⚠️ <code>{safe_user}</code>: Требует ручной проверки")
             else:
-                lines.append(f"❌ <code>{safe_user}</code>: Error ({html.escape(ctx.error_message or 'failed')[:40]})")
+                lines.append(f"❌ <code>{safe_user}</code>: Ошибка ({html.escape(ctx.error_message or 'failed')[:30]})")
 
         full_message = header + "\n".join(lines)
         return self.send_raw_message(full_message)

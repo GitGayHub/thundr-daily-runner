@@ -112,6 +112,7 @@ class AccountRecord:
     last_status: Optional[DailyCrateStatus] = None
     last_checked_at: Optional[str] = None
     last_claimed_at: Optional[str] = None
+    last_reward_coins: Optional[int] = None
 
     @property
     def has_credentials(self) -> bool:
@@ -129,6 +130,7 @@ class AccountRecord:
             "created_at": self.created_at,
             "last_checked_at": self.last_checked_at,
             "last_claimed_at": self.last_claimed_at,
+            "last_reward_coins": self.last_reward_coins,
         }
         if include_secrets:
             if self.password:
@@ -172,6 +174,7 @@ class AccountRecord:
             last_status=last_status,
             last_checked_at=data.get("last_checked_at"),
             last_claimed_at=data.get("last_claimed_at"),
+            last_reward_coins=data.get("last_reward_coins"),
         )
 
 
@@ -326,7 +329,13 @@ class AccountManager:
             self._accounts[key].session = session
             self.save()
 
-    def update_status(self, username: str, status: DailyCrateStatus, claimed: bool = False) -> None:
+    def update_status(
+        self,
+        username: str,
+        status: DailyCrateStatus,
+        claimed: bool = False,
+        reward_coins: Optional[int] = None,
+    ) -> None:
         key = username.strip().lower()
         if key in self._accounts:
             acc = self._accounts[key]
@@ -334,6 +343,8 @@ class AccountManager:
             acc.last_checked_at = datetime.now(timezone.utc).isoformat()
             if claimed:
                 acc.last_claimed_at = acc.last_checked_at
+            if reward_coins is not None and reward_coins > 0:
+                acc.last_reward_coins = reward_coins
             self.save()
 
 

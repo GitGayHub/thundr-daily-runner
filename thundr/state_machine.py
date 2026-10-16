@@ -63,6 +63,7 @@ class StateMachineContext:
     initial_balance: Optional[int] = None
     final_balance: Optional[int] = None
     coins_earned: int = 0
+    last_reward_coins: Optional[int] = None
     status: Optional[DailyCrateStatus] = None
     claim_result: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
@@ -94,6 +95,7 @@ class StateMachineContext:
             "initial_balance": self.initial_balance,
             "final_balance": self.final_balance,
             "coins_earned": self.coins_earned,
+            "last_reward_coins": self.last_reward_coins,
             "streak": self.status.streak if self.status else 0,
             "error_message": self.error_message,
             "started_at": self.started_at,
@@ -113,7 +115,11 @@ class DailyCrateStateMachine:
 
     def run(self, account: AccountRecord, dry_run: bool = False) -> StateMachineContext:
         """Run the full crate claim lifecycle for the given account."""
-        ctx = StateMachineContext(username=account.username, current_state=CrateState.NOT_AUTHENTICATED)
+        ctx = StateMachineContext(
+            username=account.username,
+            current_state=CrateState.NOT_AUTHENTICATED,
+            last_reward_coins=account.last_reward_coins,
+        )
         auth_note = (
             "Session present, validating via API"
             if account.has_session
@@ -185,6 +191,8 @@ class DailyCrateStateMachine:
 
             # Success criteria: crate is now not available, OR coin balance increased
             if not new_status.available or ctx.coins_earned > 0:
+                if ctx.coins_earned > 0:
+                    ctx.last_reward_coins = ctx.coins_earned
                 ctx.record_transition(
                     CrateState.CLAIMED,
                     f"Successfully claimed! Balance: {ctx.final_balance} (+{ctx.coins_earned} coins), Streak: {new_status.streak}"

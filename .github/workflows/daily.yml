@@ -2,11 +2,8 @@ name: Thundr Daily Rewards Claimer
 
 on:
   schedule:
-    # Daily reset occurs at 00:00:00 UTC.
-    # Primary run at 00:05 UTC (5 minutes past midnight UTC).
-    - cron: '5 0 * * *'
-    # Backup run at 12:05 UTC to catch retries or accounts added later.
-    - cron: '5 12 * * *'
+    # Run every 3 hours as requested by user (00:05, 03:05, 06:05, 09:05, 12:05, 15:05, 18:05, 21:05 UTC)
+    - cron: '5 */3 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -65,6 +62,7 @@ jobs:
           APP_TIMEZONE: Europe/Berlin
           HEADLESS_BROWSER: 'true'
         run: |
+          mkdir -p data
           DRY_RUN_FLAG=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
@@ -79,4 +77,5 @@ jobs:
           path: |
             data/history.json
             data/history.csv
+          if-no-files-found: ignore
           retention-days: 30

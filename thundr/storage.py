@@ -97,6 +97,8 @@ class StorageManager:
         self.csv_file = Path(csv_file or os.getenv("CSV_FILE", data_dir / "history.csv"))
         self._entries: List[HistoryEntry] = []
         self._load()
+        if not self.history_file.exists():
+            self.save()
 
     def _load(self) -> None:
         """Load history from JSON file."""
@@ -154,6 +156,14 @@ class StorageManager:
             records = [r for r in records if r.username.lower() == key]
         # Return newest first
         return list(reversed(records))[:limit]
+
+    def get_last_reward_for_user(self, username: str) -> Optional[int]:
+        """Find the coins earned from the most recent positive claim or run for this user."""
+        key = username.strip().lower()
+        for e in reversed(self._entries):
+            if e.username.lower() == key and e.coins_earned > 0:
+                return e.coins_earned
+        return None
 
     def get_summary(self) -> Dict[str, Any]:
         """Calculate high-level performance metrics and statistics."""
