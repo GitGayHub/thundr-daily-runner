@@ -58,7 +58,7 @@ VALID_TRANSITIONS: Dict[CrateState, Set[CrateState]] = {
 class StateMachineContext:
     """Execution context and result of the state machine run."""
     username: str
-    current_state: CrateState = CrateState.UNINITIALIZED
+    current_state: CrateState = CrateState.NOT_AUTHENTICATED
     state_history: List[Tuple[CrateState, str, str]] = field(default_factory=list)
     initial_balance: Optional[int] = None
     final_balance: Optional[int] = None
@@ -113,14 +113,13 @@ class DailyCrateStateMachine:
 
     def run(self, account: AccountRecord, dry_run: bool = False) -> StateMachineContext:
         """Run the full crate claim lifecycle for the given account."""
-        ctx = StateMachineContext(username=account.username)
-        ctx.record_transition(CrateState.UNINITIALIZED, "Starting lifecycle run")
-
-        if not account.has_session:
-            ctx.record_transition(
-                CrateState.NOT_AUTHENTICATED,
-                f"Account '{account.username}' has no active session, authentication required"
-            )
+        ctx = StateMachineContext(username=account.username, current_state=CrateState.NOT_AUTHENTICATED)
+        auth_note = (
+            "Session present, validating via API"
+            if account.has_session
+            else f"Account '{account.username}' has no active session, authentication required"
+        )
+        ctx.record_transition(CrateState.NOT_AUTHENTICATED, auth_note)
 
         try:
             # 1. State: CHECKING

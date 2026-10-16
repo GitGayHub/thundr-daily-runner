@@ -51,7 +51,7 @@ def test_state_machine_claimed_flow(mock_client, test_account):
     # Check state history progression
     states = [h[0] for h in ctx.state_history]
     assert states == [
-        CrateState.UNINITIALIZED,
+        CrateState.NOT_AUTHENTICATED,
         CrateState.CHECKING,
         CrateState.READY,
         CrateState.CLAIMING,
@@ -144,9 +144,9 @@ def test_state_machine_not_authenticated_initial_transition(mock_client):
 
     states = [h[0] for h in ctx.state_history]
     assert CrateState.NOT_AUTHENTICATED in states
-    assert states[0] == CrateState.UNINITIALIZED
-    assert states[1] == CrateState.NOT_AUTHENTICATED
-    assert states[2] == CrateState.CHECKING
+    assert states[0] == CrateState.NOT_AUTHENTICATED
+    assert states[1] == CrateState.CHECKING
+    assert states[2] == CrateState.COOLDOWN
     assert ctx.current_state == CrateState.COOLDOWN
 
 

@@ -152,3 +152,9 @@ def test_cli_claim(mock_sm_cls, tmp_path, monkeypatch):
     assert "CLAIMED" in res.output
     assert "+15" in res.output
 
+    # Positional argument invocation: `cli claim dave`
+    res_pos = runner.invoke(cli, ["claim", "dave", "--no-telegram"])
+    assert res_pos.exit_code == 0
+    assert "dave" in res_pos.output
+    assert "CLAIMED" in res_pos.output
+

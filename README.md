@@ -181,12 +181,12 @@ python -m pytest tests/ -v
 ## 📝 Журнал изменений (Changelog)
 
 ### v2.1.0
-- 🚀 **Прямой API Login:** Добавлен метод `ThundrApiClient.login()` через `POST https://id.thundr.com/api/users/login` (~0.15 сек). Браузер Playwright теперь выступает в роли надежного fallback при сетевых сбоях или капче.
-- ⚡ **Новая CLI-команда:** Добавлена команда `python cli.py claim` (с поддержкой `-a/--account`, `--all`, `--dry-run`, `--no-telegram`).
-- 🔄 **Строгая модель состояний FSM:** Добавлены состояния `NOT_AUTHENTICATED` и `ERROR` в `CrateState` и диаграмму переходов `VALID_TRANSITIONS`.
-- 👥 **Совместимость API аккаунтов:** В `thundr.account` добавлены алиасы `AccountConfig = AccountRecord` и `AccountState = DailyCrateStatus`.
+- 🚀 **Прямой API Login & Fast Re-Auth:** Добавлен метод `ThundrApiClient.login()` через `POST https://id.thundr.com/api/users/login` (~0.15 сек). Браузер Playwright выступает в роли надежного fallback при сетевых сбоях или капче. Авто-реавторизация на 401 использует быстрый API-логин перед браузерным резервом.
+- ⚡ **Новая CLI-команда:** Добавлена команда `python cli.py claim` (с поддержкой позиционного аргумента `claim [ACCOUNT]`, а также опций `-a/--account`, `--all`, `--dry-run`, `--no-telegram`).
+- 🔄 **Строгая модель состояний FSM:** Полный жизненный цикл строго выстроен: `NOT_AUTHENTICATED ➔ CHECKING ➔ READY / COOLDOWN / ERROR ➔ CLAIMING ➔ VERIFYING ➔ CLAIMED / UNCERTAIN / FAILED`.
+- 👥 **Совместимость API аккаунтов:** В `thundr.account` добавлены классы и алиасы `AccountConfig = AccountRecord`, `AccountState = DailyCrateStatus`, `AccountSession`.
 - 🛡️ **Устойчивость путей данных:** `StorageManager` и `AccountManager` теперь надежно резолвят пути относительно корня проекта.
-- 🧪 **Расширенный тестовый набор:** Добавлено 8 новых тестов (всего 43 теста, 100% успех).
+- 🧪 **Расширенный тестовый набор:** 44 теста (42 unit/mock теста — 100% PASS, 2 live-теста со штатным skip при сетевых ограничениях).
 
 ---
 

@@ -215,7 +215,12 @@ class ThundrApiClient:
             headers={"Content-Type": "application/json"},
         )
         if status_code == 200:
-            user_data = data.get("data") if isinstance(data.get("data"), dict) else data
+            if isinstance(data.get("data"), dict):
+                user_data = data["data"]
+            elif isinstance(data.get("user"), dict):
+                user_data = data["user"]
+            else:
+                user_data = data
             user_id = user_data.get("key") or user_data.get("user_id") or user_data.get("id")
             hashed_token = user_data.get("hashed_token") or user_data.get("token")
             if user_id and hashed_token:
@@ -392,8 +397,8 @@ class ThundrClient:
             return self.api.get_crate_status(account.session.user_id, account.session.hashed_token)
         except ThundrAuthError:
             if auto_reauth and account.has_credentials:
-                logger.info(f"Re-authenticating '{account.username}' via browser after 401...")
-                session = self.browser.login(account.username, account.password)  # type: ignore
+                logger.info(f"Re-authenticating '{account.username}' after 401...")
+                session = self.login(account.username, account.password)  # type: ignore
                 account.session = session
                 return self.api.get_crate_status(session.user_id, session.hashed_token)
             raise
@@ -411,8 +416,8 @@ class ThundrClient:
             return self.api.claim_crate(account.session.user_id, account.session.hashed_token)
         except ThundrAuthError:
             if auto_reauth and account.has_credentials:
-                logger.info(f"Re-authenticating '{account.username}' via browser after 401...")
-                session = self.browser.login(account.username, account.password)  # type: ignore
+                logger.info(f"Re-authenticating '{account.username}' after 401...")
+                session = self.login(account.username, account.password)  # type: ignore
                 account.session = session
                 return self.api.claim_crate(session.user_id, session.hashed_token)
             raise
@@ -430,7 +435,8 @@ class ThundrClient:
             return self.api.get_balance(account.session.user_id, account.session.hashed_token)
         except ThundrAuthError:
             if auto_reauth and account.has_credentials:
-                session = self.browser.login(account.username, account.password)  # type: ignore
+                logger.info(f"Re-authenticating '{account.username}' after 401...")
+                session = self.login(account.username, account.password)  # type: ignore
                 account.session = session
                 return self.api.get_balance(session.user_id, session.hashed_token)
             raise

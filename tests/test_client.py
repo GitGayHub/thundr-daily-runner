@@ -114,7 +114,6 @@ def test_hybrid_client_auto_reauth_on_401():
     mock_api = MagicMock(spec=ThundrApiClient)
     mock_browser = MagicMock(spec=ThundrBrowserClient)
 
-    # First call to get_crate_status raises 401, second call succeeds
     fresh_status = DailyCrateStatus(available=True, coin_balance=30, streak=2)
     mock_api.get_crate_status.side_effect = [
         ThundrAuthError("HTTP 401 Unauthorized"),
@@ -122,7 +121,7 @@ def test_hybrid_client_auto_reauth_on_401():
     ]
 
     new_session = AccountSession(user_id="u1", hashed_token="new_valid_token")
-    mock_browser.login.return_value = new_session
+    mock_api.login.return_value = new_session
 
     client = ThundrClient(api_client=mock_api, browser_client=mock_browser)
     account = AccountRecord(
@@ -135,6 +134,37 @@ def test_hybrid_client_auto_reauth_on_401():
 
     assert result_status == fresh_status
     assert account.session == new_session
+    mock_api.login.assert_called_once_with("alice", "password123")
+    mock_browser.login.assert_not_called()
+    assert mock_api.get_crate_status.call_count == 2
+
+
+def test_hybrid_client_auto_reauth_on_401_falls_back_to_browser():
+    mock_api = MagicMock(spec=ThundrApiClient)
+    mock_browser = MagicMock(spec=ThundrBrowserClient)
+
+    fresh_status = DailyCrateStatus(available=True, coin_balance=30, streak=2)
+    mock_api.get_crate_status.side_effect = [
+        ThundrAuthError("HTTP 401 Unauthorized"),
+        fresh_status,
+    ]
+    mock_api.login.side_effect = ThundrNetworkError("Direct API login unreachable")
+
+    browser_session = AccountSession(user_id="u1", hashed_token="browser_valid_token")
+    mock_browser.login.return_value = browser_session
+
+    client = ThundrClient(api_client=mock_api, browser_client=mock_browser)
+    account = AccountRecord(
+        username="alice",
+        password="password123",
+        session=AccountSession(user_id="u1", hashed_token="expired_token"),
+    )
+
+    result_status = client.get_crate_status(account, auto_reauth=True)
+
+    assert result_status == fresh_status
+    assert account.session == browser_session
+    mock_api.login.assert_called_once_with("alice", "password123")
     mock_browser.login.assert_called_once_with("alice", "password123")
     assert mock_api.get_crate_status.call_count == 2
 
