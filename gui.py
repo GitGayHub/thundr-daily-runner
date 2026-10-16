@@ -91,12 +91,23 @@ class ThundrGUI(ctk.CTk):
         self._build_main_content()
         self._build_status_bar()
 
+        # Handle window close gracefully
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
         # Start periodic tick timers
         self._tick_timers()
 
         # Initial population of accounts
         self.refresh_accounts_view()
         self.log("🚀 Thundr Daily Rewards Manager запущен и готов к работе.")
+
+    def _on_close(self) -> None:
+        try:
+            self.daemon_active = False
+            self.quit()
+            self.destroy()
+        except Exception:
+            pass
 
     # -------------------------------------------------------------------------
     # UI Building Blocks
@@ -286,23 +297,30 @@ class ThundrGUI(ctk.CTk):
     # -------------------------------------------------------------------------
 
     def _tick_timers(self) -> None:
-        now_dt = datetime.now(self.tz)
-        # Update clock
-        self.lbl_clock.configure(text=now_dt.strftime("%d.%m.%Y %H:%M:%S %Z"))
+        try:
+            if not self.winfo_exists():
+                return
+            now_dt = datetime.now(self.tz)
+            # Update clock
+            if hasattr(self, "lbl_clock") and self.lbl_clock.winfo_exists():
+                self.lbl_clock.configure(text=now_dt.strftime("%d.%m.%Y %H:%M:%S %Z"))
 
-        # Check background daemon
-        if self.daemon_active:
-            now_ts = time.time()
-            if self.last_daemon_run is None or (now_ts - self.last_daemon_run >= self.daemon_interval_sec):
-                self.last_daemon_run = now_ts
-                self.log("🕒 Сработал авто-таймер (каждые 3 часа). Запуск проверки аккаунтов...")
-                threading.Thread(target=self._execute_batch, args=(False,), daemon=True).start()
+            # Check background daemon
+            if self.daemon_active:
+                now_ts = time.time()
+                if self.last_daemon_run is None or (now_ts - self.last_daemon_run >= self.daemon_interval_sec):
+                    self.last_daemon_run = now_ts
+                    self.log("🕒 Сработал авто-таймер (каждые 3 часа). Запуск проверки аккаунтов...")
+                    threading.Thread(target=self._execute_batch, args=(False,), daemon=True).start()
 
-        # Update remaining cooldown timers for account cards
-        self._update_account_timers()
+            # Update remaining cooldown timers for account cards
+            self._update_account_timers()
 
-        # Schedule next tick in 1 second
-        self.after(1000, self._tick_timers)
+            # Schedule next tick in 1 second
+            if self.winfo_exists():
+                self.after(1000, self._tick_timers)
+        except Exception:
+            pass
 
     def _update_account_timers(self) -> None:
         if not hasattr(self, "account_cards"):
