@@ -79,6 +79,12 @@ def test_telegram_mode_filtering():
     assert n_summary.should_notify_single(ctx_claimed) is False
     assert n_summary.should_notify_single(ctx_cooldown) is False
 
+    # Mode: digest_2x (smart 2x daily notifications)
+    n_digest = TelegramNotifier(bot_token="t", chat_id="c", mode="digest_2x")
+    assert n_digest.should_notify_single(ctx_claimed) is True
+    assert n_digest.should_notify_single(ctx_cooldown) is False
+    assert n_digest.should_notify_single(ctx_failed) is True
+
 
 def test_telegram_summary_report():
     notifier = TelegramNotifier(
@@ -127,3 +133,32 @@ def test_telegram_fallback_to_plain_text_on_parse_error():
         ok = notifier.send_raw_message("<b>unclosed tag")
         assert ok is True
         assert mock_post.call_count == 2
+
+
+def test_telegram_digest_2x_summary_throttle(tmp_path):
+    notifier = TelegramNotifier(
+        bot_token="fake_bot_token",
+        chat_id="fake_chat_id",
+        mode="digest_2x",
+    )
+    notifier.state_file = tmp_path / "telegram_state.json"
+
+    c_cooldown = StateMachineContext(username="u1", current_state=CrateState.COOLDOWN)
+
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_post.return_value = mock_resp
+
+        # First summary should send
+        assert notifier.notify_summary([c_cooldown]) is True
+        assert mock_post.call_count == 1
+
+        # Second summary within 10h should be throttled
+        assert notifier.notify_summary([c_cooldown]) is False
+        assert mock_post.call_count == 1
+
+        # If forced, it should send
+        assert notifier.notify_summary([c_cooldown], force=True) is True
+        assert mock_post.call_count == 2
+

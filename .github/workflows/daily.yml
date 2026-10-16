@@ -12,14 +12,15 @@ on:
         required: false
         default: false
       notify_mode:
-        description: 'Telegram notification mode (all, rewards_only, errors_only, summary)'
+        description: 'Telegram notification mode (all, rewards_only, errors_only, summary, digest_2x)'
         type: choice
         options:
           - all
           - rewards_only
           - errors_only
           - summary
-        default: all
+          - digest_2x
+        default: digest_2x
 
 concurrency:
   group: thundr-daily-${{ github.ref }}
@@ -58,7 +59,7 @@ jobs:
           THUNDR_HASHED_TOKEN: ${{ secrets.THUNDR_HASHED_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_MODE: ${{ inputs.notify_mode || secrets.TELEGRAM_MODE || 'all' }}
+          TELEGRAM_MODE: ${{ inputs.notify_mode || secrets.TELEGRAM_MODE || 'digest_2x' }}
           APP_TIMEZONE: Europe/Berlin
           HEADLESS_BROWSER: 'true'
         run: |

@@ -37,6 +37,7 @@ htmlcov/
 .env
 data/accounts.json
 data/*.local.json
+data/telegram_state.json
 data/history.json
 data/history.csv
 !data/.gitkeep

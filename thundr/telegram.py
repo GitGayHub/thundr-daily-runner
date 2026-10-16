@@ -9,6 +9,7 @@ import html
 import logging
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -31,15 +32,33 @@ class TelegramNotifier:
     ):
         self.bot_token = bot_token if bot_token is not None else os.getenv("TELEGRAM_BOT_TOKEN")
         self.chat_id = chat_id if chat_id is not None else os.getenv("TELEGRAM_CHAT_ID")
-        self.mode = (mode if mode is not None else os.getenv("TELEGRAM_MODE", "all")).lower().strip()
+        self.mode = (mode if mode is not None else os.getenv("TELEGRAM_MODE", "digest_2x")).lower().strip()
         self.tz_name = tz_name or os.getenv("APP_TIMEZONE", "Europe/Berlin")
-
+        self.state_file = Path(__file__).resolve().parent.parent / "data" / "telegram_state.json"
 
         try:
             self.tz = ZoneInfo(self.tz_name)
         except Exception:
             logger.warning(f"Could not load timezone '{self.tz_name}', falling back to UTC.")
             self.tz = timezone.utc
+
+    def _get_last_summary_ts(self) -> float:
+        if self.state_file.exists():
+            try:
+                import json
+                data = json.loads(self.state_file.read_text(encoding="utf-8"))
+                return float(data.get("last_summary_ts", 0))
+            except Exception:
+                pass
+        return 0.0
+
+    def _save_last_summary_ts(self, ts: float) -> None:
+        try:
+            import json
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+            self.state_file.write_text(json.dumps({"last_summary_ts": ts}), encoding="utf-8")
+        except Exception:
+            pass
 
     @property
     def is_configured(self) -> bool:
@@ -125,6 +144,9 @@ class TelegramNotifier:
         if self.mode == "summary":
             # In summary mode, individual messages are suppressed in favor of batch report
             return False
+        if self.mode in ("digest_2x", "smart_2x"):
+            # In digest_2x mode, individual messages are sent ONLY when reward is claimed or error occurs!
+            return ctx.current_state in (CrateState.CLAIMED, CrateState.FAILED, CrateState.UNCERTAIN)
         if self.mode == "rewards_only":
             return ctx.current_state == CrateState.CLAIMED
         if self.mode == "errors_only":
@@ -185,16 +207,29 @@ class TelegramNotifier:
 
         return self.send_raw_message(msg)
 
-    def notify_summary(self, contexts: List[StateMachineContext]) -> bool:
+    def notify_summary(self, contexts: List[StateMachineContext], force: bool = False) -> bool:
         """Send a consolidated summary report for a batch of accounts."""
         if not contexts:
             return False
 
+        has_claimed = any(c.current_state == CrateState.CLAIMED for c in contexts)
+        has_errors = any(c.current_state in (CrateState.FAILED, CrateState.UNCERTAIN) for c in contexts)
+
         # In rewards_only or errors_only mode, check if there's anything to report
-        if self.mode == "rewards_only" and not any(c.current_state == CrateState.CLAIMED for c in contexts):
+        if self.mode == "rewards_only" and not has_claimed:
             return False
-        if self.mode == "errors_only" and not any(c.current_state in (CrateState.FAILED, CrateState.UNCERTAIN) for c in contexts):
+        if self.mode == "errors_only" and not has_errors:
             return False
+
+        # In digest_2x mode, throttle pure cooldown summaries to ~2 times per day (every 10 hours)
+        if self.mode in ("digest_2x", "smart_2x") and not force:
+            if not has_claimed and not has_errors:
+                import time
+                last_ts = self._get_last_summary_ts()
+                now_ts = time.time()
+                if (now_ts - last_ts) < (10 * 3600):
+                    logger.info("Cooldown summary skipped in digest_2x mode (sent less than 10 hours ago).")
+                    return False
 
         now_str = datetime.now(self.tz).strftime("%Y-%m-%d %H:%M:%S %Z")
         claimed_count = sum(1 for c in contexts if c.current_state == CrateState.CLAIMED)
@@ -238,4 +273,8 @@ class TelegramNotifier:
                 lines.append(f"❌ <code>{safe_user}</code>: Ошибка ({html.escape(ctx.error_message or 'failed')[:30]})")
 
         full_message = header + "\n".join(lines)
-        return self.send_raw_message(full_message)
+        ok = self.send_raw_message(full_message)
+        if ok:
+            import time
+            self._save_last_summary_ts(time.time())
+        return ok
