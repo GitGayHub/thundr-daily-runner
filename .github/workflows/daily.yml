@@ -1,0 +1,82 @@
+name: Thundr Daily Rewards Claimer
+
+on:
+  schedule:
+    # Daily reset occurs at 00:00:00 UTC.
+    # Primary run at 00:05 UTC (5 minutes past midnight UTC).
+    - cron: '5 0 * * *'
+    # Backup run at 12:05 UTC to catch retries or accounts added later.
+    - cron: '5 12 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (simulate without claiming)?'
+        type: boolean
+        required: false
+        default: false
+      notify_mode:
+        description: 'Telegram notification mode (all, rewards_only, errors_only, summary)'
+        type: choice
+        options:
+          - all
+          - rewards_only
+          - errors_only
+          - summary
+        default: all
+
+concurrency:
+  group: thundr-daily-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  claim-rewards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright Chromium (Fallback Re-Auth Engine)
+        run: |
+          playwright install --with-deps chromium
+
+      - name: Run Thundr Daily Claimer
+        env:
+          THUNDR_ACCOUNTS_JSON: ${{ secrets.THUNDR_ACCOUNTS_JSON }}
+          THUNDR_USERNAME: ${{ secrets.THUNDR_USERNAME }}
+          THUNDR_PASSWORD: ${{ secrets.THUNDR_PASSWORD }}
+          THUNDR_USER_ID: ${{ secrets.THUNDR_USER_ID }}
+          THUNDR_HASHED_TOKEN: ${{ secrets.THUNDR_HASHED_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MODE: ${{ inputs.notify_mode || secrets.TELEGRAM_MODE || 'all' }}
+          APP_TIMEZONE: Europe/Berlin
+          HEADLESS_BROWSER: 'true'
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          python cli.py run $DRY_RUN_FLAG
+
+      - name: Upload Claim History & Statistics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thundr-history
+          path: |
+            data/history.json
+            data/history.csv
+          retention-days: 30

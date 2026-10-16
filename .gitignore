@@ -1,0 +1,52 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Sensitive credentials & runtime state
+.env
+data/accounts.json
+data/*.local.json
+data/history.json
+data/history.csv
+!data/.gitkeep
+research/
+*.png
+*.log
+
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
