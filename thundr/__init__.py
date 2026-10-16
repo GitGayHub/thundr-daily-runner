@@ -25,7 +25,7 @@ from thundr.state_machine import (
 from thundr.storage import HistoryEntry, StorageManager
 from thundr.telegram import TelegramNotifier
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 __all__ = [
     "AccountConfig",
     "AccountManager",
