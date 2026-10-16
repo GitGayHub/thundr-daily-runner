@@ -81,7 +81,22 @@ Defined in `thundr/state_machine.py`:
 - In logs and stdout: `mask_secret()` formats tokens as `qKih...KD8=`.
 - `AccountRecord.to_dict(include_secrets=False)` is used when serializing public state.
 - History files (`data/history.json`, `data/history.csv`) NEVER store passwords or session tokens.
-- In CI/CD, multiple accounts can be passed via `THUNDR_ACCOUNTS_JSON` secret without touching disk.
+- In CI/CD, all 25 accounts are passed via `THUNDR_ACCOUNTS_JSON` secret without touching disk.
+
+### 2.4 Environment Isolation & Bot Token Collision Prevention
+- **Root Cause Identified:** Host Windows systems can have user-level environment variables (e.g. `TELEGRAM_BOT_TOKEN`) set by other projects. Standard `os.getenv` or uninstalled `python-dotenv` causes silent fallback to the host's existing tokens.
+- **Solution:** `thundr/env_loader.py` is imported at package init (`thundr/__init__.py`), `thundr/telegram.py`, `cli.py`, and `gui.py`. It parses the project `.env` with standard library only and overrides `os.environ` keys explicitly. Also, `THUNDR_TELEGRAM_BOT_TOKEN` takes top priority over `TELEGRAM_BOT_TOKEN`.
+- **Target Bot:** `@ThundrCoinsBot` (`8636160274:AAG73gwUmywGQi0L5bxTtVym9DD6qxMRfhA`), Chat ID: `5326338543`. Old test bot (`8303538057:...`) is completely detached.
+
+### 2.5 Account Registration & Onboarding Lifecycle
+- Registration endpoint: `POST https://id.thundr.com/api/users/signup` (`email` and `password`).
+- Rate Limiting: Cloudflare limits account creations to 3 per ~200 seconds (`HTTP 429`, "Unable to create account. Please try again."). Batch scripts must pause for 205s after every 3 creations.
+- Critical Onboarding Step: After registration, Thundr displays a 4-step modal ("I Agree", "Start", "Continue", etc.). If these are not clicked in browser, the account token has `valid: false` and cannot claim crates. Scripts automate clicking through onboarding to persist a verified `hashed_token`.
+- Total Accounts Configured: **25 accounts** (`gamasek1`, `gamasek4` through `gamasek17`, `gamasek19` through `gamasek21`, `gamasek4146`, `gamasek23`, `gamasek25` through `gamasek29`). Password: `ugIYgdGdiD8au0`.
+
+### 2.6 Desktop GUI Dashboard
+- `gui.py` uses `customtkinter` with Dark Mode. Run via `run_gui.bat` or `python gui.py`.
+- Features: Live table of all 25 accounts, balance, streak, crate status, manual claim single/all, dry-run mode, and Telegram configuration dialog.
 
 ---
 
@@ -92,5 +107,6 @@ Run all unit and mock tests:
 python -m pytest tests/ -v
 ```
 
-All 35 tests must pass without errors or warnings.
+All 43 unit/mock tests must pass without errors or warnings.
 When adding new endpoints (e.g. boost claiming or store items), add corresponding tests in `tests/test_client.py` and `tests/test_state_machine.py`.
+
