@@ -129,7 +129,7 @@ def _execute_rewards(
         storage_mgr.record_run(ctx)
 
         # Send individual Telegram alert if configured
-        if telegram_notifier:
+        if telegram_notifier and (len(target_accounts) == 1 or telegram_notifier.mode == "all"):
             telegram_notifier.notify_single_run(ctx)
 
     # Send batch summary to Telegram

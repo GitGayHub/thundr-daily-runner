@@ -81,9 +81,9 @@ def test_telegram_mode_filtering():
 
     # Mode: digest_2x (smart 2x daily notifications)
     n_digest = TelegramNotifier(bot_token="t", chat_id="c", mode="digest_2x")
-    assert n_digest.should_notify_single(ctx_claimed) is True
+    assert n_digest.should_notify_single(ctx_claimed) is False
     assert n_digest.should_notify_single(ctx_cooldown) is False
-    assert n_digest.should_notify_single(ctx_failed) is True
+    assert n_digest.should_notify_single(ctx_failed) is False
 
 
 def test_telegram_summary_report():
@@ -109,10 +109,12 @@ def test_telegram_summary_report():
 
         payload = mock_post.call_args[1]["json"]
         text = payload["text"]
-        assert "Batch Summary" in text
-        assert "user1" in text
-        assert "user2" in text
-        assert "+10" in text
+        assert "THUNDR REPORT" in text
+        assert "user1" in text  # user1 is top account with 50 coins
+        assert "70 монет" in text  # total balance 50 + 20
+        assert "35.0 монет" in text  # average balance 70 / 2
+        assert "1 из 2" in text  # 1 account with 50+ coins
+
 
 
 def test_telegram_fallback_to_plain_text_on_parse_error():

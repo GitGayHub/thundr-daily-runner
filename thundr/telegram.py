@@ -154,12 +154,9 @@ class TelegramNotifier:
 
     def should_notify_single(self, ctx: StateMachineContext) -> bool:
         """Determine if a single account run should trigger a notification based on mode."""
-        if self.mode == "summary":
-            # In summary mode, individual messages are suppressed in favor of batch report
+        if self.mode in ("summary", "digest_2x", "smart_2x"):
+            # In summary/digest modes, individual messages are suppressed in favor of batch report
             return False
-        if self.mode in ("digest_2x", "smart_2x"):
-            # In digest_2x mode, individual messages are sent ONLY when reward is claimed or error occurs!
-            return ctx.current_state in (CrateState.CLAIMED, CrateState.FAILED, CrateState.UNCERTAIN)
         if self.mode == "rewards_only":
             return ctx.current_state == CrateState.CLAIMED
         if self.mode == "errors_only":
@@ -221,7 +218,7 @@ class TelegramNotifier:
         return self.send_raw_message(msg)
 
     def notify_summary(self, contexts: List[StateMachineContext], force: bool = False) -> bool:
-        """Send a consolidated summary report for a batch of accounts."""
+        """Send a consolidated summary report for a batch of accounts without flooding chat."""
         if not contexts:
             return False
 
@@ -256,50 +253,73 @@ class TelegramNotifier:
                             )
                             return False
 
-        now_str = datetime.now(self.tz).strftime("%Y-%m-%d %H:%M:%S %Z")
+        now_str = datetime.now(self.tz).strftime("%d.%m.%Y %H:%M %Z")
+        total_accounts = len(contexts)
         claimed_count = sum(1 for c in contexts if c.current_state == CrateState.CLAIMED)
         cooldown_count = sum(1 for c in contexts if c.current_state == CrateState.COOLDOWN)
         failed_count = sum(1 for c in contexts if c.current_state in (CrateState.FAILED, CrateState.UNCERTAIN))
         total_coins_earned = sum(c.coins_earned for c in contexts)
-        known_total_balance = sum((c.final_balance or c.initial_balance or 0) for c in contexts)
 
-        header = (
-            f"📊 <b>THUNDR DAILY REPORT — СВОДКА (Batch Summary)</b>\n"
-            f"📅 <i>{now_str}</i>\n\n"
-            f"👥 Всего аккаунтов: <b>{len(contexts)}</b>\n"
-            f"🎁 Получено кейсов: <b>{claimed_count}</b> (+{total_coins_earned} монет)\n"
-            f"⏳ В ожидании (Cooldown): <b>{cooldown_count}</b>\n"
-            f"❌ Ошибки: <b>{failed_count}</b>\n"
-            f"💰 Общий баланс: <b>{known_total_balance} монет</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━\n"
-        )
+        # Calculate balances & statistics
+        balances = [(c.final_balance or c.initial_balance or 0) for c in contexts]
+        total_balance = sum(balances)
+        avg_balance = (total_balance / total_accounts) if total_accounts > 0 else 0.0
 
-        lines = []
-        for ctx in contexts:
-            safe_user = html.escape(ctx.username)
-            rem_str = self.format_time_remaining(ctx.status.next_reset_at if ctx.status else None)
-            last_rew_str = self._format_last_reward(ctx.last_reward_coins or (ctx.coins_earned if ctx.coins_earned > 0 else None))
-            streak = ctx.status.streak if ctx.status else 0
-            bal = ctx.final_balance or ctx.initial_balance or 0
+        # Accounts with 50+ coins
+        accs_50_plus = sum(1 for b in balances if b >= 50)
 
-            if ctx.current_state == CrateState.CLAIMED:
-                lines.append(
-                    f"✅ <code>{safe_user}</code>: <b>+{ctx.coins_earned} монет</b> "
-                    f"(Баланс: {bal}, 🔥{streak} дн.) | След. через: {rem_str}"
-                )
-            elif ctx.current_state == CrateState.COOLDOWN:
-                lines.append(
-                    f"⏳ <code>{safe_user}</code>: {bal} монет | До кейса: <b>{rem_str}</b> "
-                    f"| Прошлый: {last_rew_str} (🔥{streak} дн.)"
-                )
-            elif ctx.current_state == CrateState.UNCERTAIN:
-                lines.append(f"⚠️ <code>{safe_user}</code>: Требует ручной проверки")
-            else:
-                lines.append(f"❌ <code>{safe_user}</code>: Ошибка ({html.escape(ctx.error_message or 'failed')[:30]})")
+        # Top account by balance
+        best_ctx = max(contexts, key=lambda c: (c.final_balance or c.initial_balance or 0)) if contexts else None
+        best_user = best_ctx.username if best_ctx else "N/A"
+        best_bal = (best_ctx.final_balance or best_ctx.initial_balance or 0) if best_ctx else 0
 
-        full_message = header + "\n".join(lines)
+        # Next reset timing
+        next_resets = [c.status.next_reset_at for c in contexts if c.status and c.status.next_reset_at]
+        next_reset_ts = min(next_resets) if next_resets else None
+        rem_str = self.format_time_remaining(next_reset_ts)
+
+        # 1. Header & Claim status
+        if claimed_count == total_accounts:
+            claim_line = f"🎁 <b>Сбор наград:</b> Все <b>{total_accounts}</b> собраны! (+{total_coins_earned} монет)"
+        elif claimed_count > 0:
+            claim_line = f"🎁 <b>Сбор наград:</b> Собрано <b>{claimed_count}/{total_accounts}</b> (+{total_coins_earned} монет)"
+        else:
+            claim_line = f"⏳ <b>Статус кейсов:</b> Все <b>{total_accounts}</b> на перезарядке"
+
+        # 2. Error line
+        if failed_count == 0:
+            error_line = "✔ <b>Ошибки:</b> 0 (всё чётко)"
+        else:
+            error_line = f"❌ <b>Ошибки:</b> {failed_count} акк."
+
+        # Assemble compact message
+        msg_parts = [
+            f"📊 <b>THUNDR REPORT — СВОДКА</b>",
+            f"📅 <i>{now_str}</i>\n",
+            f"👥 Всего аккаунтов: <b>{total_accounts}</b>",
+            claim_line,
+            error_line,
+            f"━━━━━━━━━━━━━━━━━━━",
+            f"💰 <b>Общий баланс:</b> {total_balance} монет" + (f" (+{total_coins_earned})" if total_coins_earned > 0 else ""),
+            f"📊 <b>В среднем на 1 аккаунт:</b> {avg_balance:.1f} монет",
+            f"💎 <b>Аккаунтов с 50+ монет:</b> {accs_50_plus} из {total_accounts}",
+            f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет)",
+            f"━━━━━━━━━━━━━━━━━━━",
+            f"⏳ <b>До следующего кейса:</b> {rem_str}",
+        ]
+
+        # Only list problematic accounts if any errors occurred
+        if failed_count > 0:
+            msg_parts.append("\n⚠️ <b>Ошибки по аккаунтам:</b>")
+            for c in contexts:
+                if c.current_state in (CrateState.FAILED, CrateState.UNCERTAIN):
+                    err_msg = html.escape(c.error_message or "ошибка")[:40]
+                    msg_parts.append(f"• <code>{html.escape(c.username)}</code>: {err_msg}")
+
+        full_message = "\n".join(msg_parts)
         ok = self.send_raw_message(full_message)
         if ok:
             import time
             self._save_last_summary_ts(time.time())
         return ok
+
