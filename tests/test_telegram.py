@@ -114,7 +114,8 @@ def test_telegram_summary_report():
         assert "user1" in text  # user1 is top account with 50 coins
         assert "70 монет" in text  # total balance 50 + 20
         assert "35.0 монет" in text  # average balance 70 / 2
-        assert "Выпало 50+ монет с кейса" in text
+        assert "Сегодня выпало 50+:" in text
+
 
 
 

@@ -294,9 +294,10 @@ class TelegramNotifier:
 
         if dropped_50_plus:
             dropped_details = ", ".join(f"<code>{html.escape(u)}</code> (+{amt})" for u, amt in dropped_50_plus)
-            drop_50_line = f"🎁 <b>Выпало 50+ монет с кейса:</b> {len(dropped_50_plus)} акк. ({dropped_details})"
+            drop_50_line = f"🎁 <b>Сегодня выпало 50+:</b> {len(dropped_50_plus)} ({dropped_details})"
         else:
-            drop_50_line = "🎁 <b>Выпало 50+ монет с кейса:</b> 0 акк."
+            drop_50_line = "🎁 <b>Сегодня выпало 50+:</b> 0"
+
 
         # Top account by balance
         best_ctx = max(contexts, key=lambda c: (c.final_balance or c.initial_balance or 0)) if contexts else None
