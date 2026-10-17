@@ -105,7 +105,17 @@ class ThundrGUI(ctk.CTk):
         try:
             self.daemon_active = False
             self.quit()
+        except Exception:
+            pass
+        try:
             self.destroy()
+        except Exception:
+            pass
+
+    def mainloop(self, *args, **kwargs) -> None:
+        """Safe mainloop wrapper that suppresses CustomTkinter post-destroy TclError on Windows."""
+        try:
+            super().mainloop(*args, **kwargs)
         except Exception:
             pass
 
@@ -834,8 +844,11 @@ def main():
     except (KeyboardInterrupt, SystemExit):
         pass
     except Exception as e:
-        print(f"GUI Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        if "application has been destroyed" in str(e) or "TclError" in type(e).__name__:
+            pass
+        else:
+            print(f"GUI Exit: {e}", file=sys.stderr)
+            sys.exit(0)
 
 
 if __name__ == "__main__":
