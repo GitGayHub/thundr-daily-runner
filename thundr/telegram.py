@@ -265,8 +265,38 @@ class TelegramNotifier:
         total_balance = sum(balances)
         avg_balance = (total_balance / total_accounts) if total_accounts > 0 else 0.0
 
-        # Accounts with 50+ coins
-        accs_50_plus = sum(1 for b in balances if b >= 50)
+        # Date and claim status for today
+        today_date_str = datetime.now(self.tz).strftime("%Y-%m-%d")
+        today_display = datetime.now(self.tz).strftime("%d.%m")
+
+        claimed_today_count = 0
+        for c in contexts:
+            if c.current_state == CrateState.CLAIMED:
+                claimed_today_count += 1
+            elif c.status and c.status.last_claimed_on == today_date_str:
+                claimed_today_count += 1
+            elif c.current_state == CrateState.COOLDOWN and c.status and not c.status.available:
+                claimed_today_count += 1
+
+        if claimed_today_count == total_accounts:
+            date_claim_line = f"📅 <b>Награда за {today_display}:</b> ✅ Забрана со всех ({total_accounts}/{total_accounts})"
+        elif claimed_today_count == 0:
+            date_claim_line = f"📅 <b>Награда за {today_display}:</b> ⏳ Ещё не забрана (0/{total_accounts} — доступна!)"
+        else:
+            date_claim_line = f"📅 <b>Награда за {today_display}:</b> ⚠️ Забрана частично ({claimed_today_count}/{total_accounts})"
+
+        # Accounts that dropped 50+ coins from the crate
+        dropped_50_plus = []
+        for c in contexts:
+            earned = c.coins_earned if c.coins_earned > 0 else (c.last_reward_coins or 0)
+            if earned >= 50:
+                dropped_50_plus.append((c.username, earned))
+
+        if dropped_50_plus:
+            dropped_details = ", ".join(f"<code>{html.escape(u)}</code> (+{amt})" for u, amt in dropped_50_plus)
+            drop_50_line = f"🎁 <b>Выпало 50+ монет с кейса:</b> {len(dropped_50_plus)} акк. ({dropped_details})"
+        else:
+            drop_50_line = "🎁 <b>Выпало 50+ монет с кейса:</b> 0 акк."
 
         # Top account by balance
         best_ctx = max(contexts, key=lambda c: (c.final_balance or c.initial_balance or 0)) if contexts else None
@@ -278,15 +308,7 @@ class TelegramNotifier:
         next_reset_ts = min(next_resets) if next_resets else None
         rem_str = self.format_time_remaining(next_reset_ts)
 
-        # 1. Header & Claim status
-        if claimed_count == total_accounts:
-            claim_line = f"🎁 <b>Сбор наград:</b> Все <b>{total_accounts}</b> собраны! (+{total_coins_earned} монет)"
-        elif claimed_count > 0:
-            claim_line = f"🎁 <b>Сбор наград:</b> Собрано <b>{claimed_count}/{total_accounts}</b> (+{total_coins_earned} монет)"
-        else:
-            claim_line = f"⏳ <b>Статус кейсов:</b> Все <b>{total_accounts}</b> на перезарядке"
-
-        # 2. Error line
+        # Error line
         if failed_count == 0:
             error_line = "✔ <b>Ошибки:</b> 0 (всё чётко)"
         else:
@@ -295,14 +317,14 @@ class TelegramNotifier:
         # Assemble compact message
         msg_parts = [
             f"📊 <b>THUNDR REPORT — СВОДКА</b>",
-            f"📅 <i>{now_str}</i>\n",
+            f"<i>{now_str}</i>\n",
             f"👥 Всего аккаунтов: <b>{total_accounts}</b>",
-            claim_line,
+            date_claim_line,
             error_line,
             f"━━━━━━━━━━━━━━━━━━━",
             f"💰 <b>Общий баланс:</b> {total_balance} монет" + (f" (+{total_coins_earned})" if total_coins_earned > 0 else ""),
             f"📊 <b>В среднем на 1 аккаунт:</b> {avg_balance:.1f} монет",
-            f"💎 <b>Аккаунтов с 50+ монет:</b> {accs_50_plus} из {total_accounts}",
+            drop_50_line,
             f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет)",
             f"━━━━━━━━━━━━━━━━━━━",
             f"⏳ <b>До следующего кейса:</b> {rem_str}",
@@ -317,6 +339,7 @@ class TelegramNotifier:
                     msg_parts.append(f"• <code>{html.escape(c.username)}</code>: {err_msg}")
 
         full_message = "\n".join(msg_parts)
+
         ok = self.send_raw_message(full_message)
         if ok:
             import time

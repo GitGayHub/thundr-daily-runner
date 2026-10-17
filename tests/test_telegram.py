@@ -110,10 +110,12 @@ def test_telegram_summary_report():
         payload = mock_post.call_args[1]["json"]
         text = payload["text"]
         assert "THUNDR REPORT" in text
+        assert "Награда за" in text
         assert "user1" in text  # user1 is top account with 50 coins
         assert "70 монет" in text  # total balance 50 + 20
         assert "35.0 монет" in text  # average balance 70 / 2
-        assert "1 из 2" in text  # 1 account with 50+ coins
+        assert "Выпало 50+ монет с кейса" in text
+
 
 
 
