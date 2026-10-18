@@ -240,9 +240,13 @@ class AccountManager:
                                 if rec.session:
                                     existing.session = rec.session
                                 if rec.last_status:
-                                    existing.last_status = rec.last_status
+                                    if existing.last_status is None:
+                                        existing.last_status = rec.last_status
+                                    elif (rec.last_status.last_claimed_on or "") >= (existing.last_status.last_claimed_on or ""):
+                                        existing.last_status = rec.last_status
                                 if rec.last_reward_coins is not None:
-                                    existing.last_reward_coins = rec.last_reward_coins
+                                    if existing.last_reward_coins is None:
+                                        existing.last_reward_coins = rec.last_reward_coins
                             else:
                                 self._accounts[key] = rec
                     logger.info(f"Merged accounts from THUNDR_ACCOUNTS_JSON (total: {len(self._accounts)})")
