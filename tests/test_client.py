@@ -233,3 +233,37 @@ def test_hybrid_client_login_falls_back_to_browser_on_api_error():
     mock_api.login.assert_called_once_with("user1", "pass1")
     mock_browser.login.assert_called_once_with("user1", "pass1")
 
+
+def test_api_client_spend_boost_success():
+    client = ThundrApiClient()
+    with patch.object(client, "_request") as mock_req:
+        mock_req.return_value = (200, {"ok": True, "boost": "mini", "duration": 1}, "")
+        res = client.spend_boost("uid1", "tok1", boost="mini")
+        assert res["ok"] is True
+        assert res["boost"] == "mini"
+        mock_req.assert_called_once()
+
+
+def test_api_client_spend_boost_invalid_type():
+    client = ThundrApiClient()
+    import pytest
+    with pytest.raises(ValueError, match="Invalid boost type"):
+        client.spend_boost("uid1", "tok1", boost="mega_ultra")
+
+
+def test_hybrid_client_spend_boost():
+    mock_api = MagicMock(spec=ThundrApiClient)
+    mock_browser = MagicMock(spec=ThundrBrowserClient)
+    mock_api.spend_boost.return_value = {"ok": True, "boost": "mini"}
+
+    client = ThundrClient(api_client=mock_api, browser_client=mock_browser)
+    acc = AccountRecord(
+        username="u1",
+        session=AccountSession(user_id="uid1", hashed_token="tok1"),
+    )
+
+    res = client.spend_boost(acc, boost="mini")
+    assert res["ok"] is True
+    mock_api.spend_boost.assert_called_once_with("uid1", "tok1", boost="mini")
+
+

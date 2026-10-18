@@ -167,3 +167,35 @@ def test_telegram_digest_2x_summary_throttle(tmp_path):
         assert notifier.notify_summary([c_cooldown], force=True) is True
         assert mock_post.call_count == 2
 
+
+def test_telegram_handle_commands():
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+    acc = MagicMock()
+    acc.balance = 120
+    acc.status = MagicMock()
+    acc.status.available = True
+
+    # Test /goal command
+    goal_res = notifier.handle_command("/goal", accounts=[acc])
+    assert goal_res is not None
+    assert "GOAL REPORT" in goal_res
+    assert "120" in goal_res
+
+    # Test /boost command
+    boost_res = notifier.handle_command("/boost", accounts=[acc])
+    assert boost_res is not None
+    assert "BOOST STORE" in boost_res
+    assert "Mini Boost" in boost_res
+
+    # Test /status command
+    status_res = notifier.handle_command("/status", accounts=[acc])
+    assert status_res is not None
+    assert "THUNDR СТАТУС" in status_res
+
+    # Test /help command
+    help_res = notifier.handle_command("/help")
+    assert help_res is not None
+    assert "/goal" in help_res
+    assert "/boost" in help_res
+
+

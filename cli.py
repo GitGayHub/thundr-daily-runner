@@ -129,8 +129,8 @@ def _execute_rewards(
         storage_mgr.record_run(ctx)
 
         # Send individual Telegram alert if configured
-        if telegram_notifier and (len(target_accounts) == 1 or telegram_notifier.mode == "all"):
-            telegram_notifier.notify_single_run(ctx)
+        if telegram_notifier and (len(accounts) == 1 or telegram_notifier.mode == "all"):
+            telegram_notifier.notify_single_run(ctx, force=(len(accounts) == 1))
 
     # Send batch summary to Telegram
     if telegram_notifier and (len(results) > 1 or telegram_notifier.mode in ("summary", "digest_2x", "smart_2x")):
@@ -407,6 +407,176 @@ def export_command(fmt: str, output: Optional[str]) -> None:
         console.print(f"[bold green]✔ History exported to JSON: {dest}[/bold green]")
 
 
+@cli.command("goal")
+@click.option("--target", "-t", default=50, help="Target coins threshold per account (default: 50).")
+@click.option("-a", "--account", "account_opt", default=None, help="Check goal for a specific account.")
+@click.option("--no-telegram", is_flag=True, help="Do not send goal report to Telegram.")
+def goal_command(target: int, account_opt: Optional[str], no_telegram: bool) -> None:
+    """Track progress towards coin goal across accounts."""
+    account_mgr = AccountManager()
+    accounts = account_mgr.list_accounts(enabled_only=True)
+    if account_opt:
+        key = account_opt.strip().lower()
+        accounts = [a for a in accounts if a.username.lower() == key]
+        if not accounts:
+            console.print(f"[bold red]❌ Account '{account_opt}' not found.[/bold red]")
+            return
+
+    if not accounts:
+        console.print("[yellow]⚠️ No accounts configured.[/yellow]")
+        return
+
+    table = Table(title=f"🎯 Goal Progress (Target: {target} coins)", show_header=True, header_style="bold green")
+    table.add_column("Account", style="cyan")
+    table.add_column("Balance", justify="right")
+    table.add_column("Progress", justify="right")
+    table.add_column("Status", justify="center")
+
+    reached_count = 0
+    total_balance = 0
+    for acc in accounts:
+        bal = acc.balance or 0
+        total_balance += bal
+        pct = min(100.0, (bal / target * 100)) if target > 0 else 100.0
+        reached = bal >= target
+        if reached:
+            reached_count += 1
+            status_str = "[bold green]✔ Reached[/bold green]"
+        else:
+            needed = target - bal
+            status_str = f"[yellow]-{needed} coins[/yellow]"
+        table.add_row(acc.username, str(bal), f"{pct:.0f}%", status_str)
+
+    console.print("\n", table)
+    pct_total = (reached_count / len(accounts) * 100) if accounts else 0
+    console.print(
+        f"\n[bold]Goal Summary:[/bold] [green]{reached_count}/{len(accounts)}[/green] ({pct_total:.1f}%) "
+        f"accounts have reached {target}+ coins. Total pool balance: [bold cyan]{total_balance}[/bold cyan] coins."
+    )
+
+    if not no_telegram:
+        notifier = TelegramNotifier()
+        if notifier.is_configured:
+            msg = (
+                f"🎯 <b>THUNDR GOAL REPORT — ЦЕЛЬ {target} МОНЕТ</b>\n\n"
+                f"👥 Всего аккаунтов: <b>{len(accounts)}</b>\n"
+                f"✅ Достигли цели ({target}+): <b>{reached_count}/{len(accounts)}</b> ({pct_total:.1f}%)\n"
+                f"💰 Общий баланс пула: <b>{total_balance}</b> монет\n"
+                f"📊 В среднем на аккаунт: <b>{total_balance / len(accounts):.1f}</b> монет"
+            )
+            notifier.send_raw_message(msg)
+
+
+@cli.command("boost")
+@click.option("-a", "--account", "account_opt", default=None, help="Specific account to spend boost on.")
+@click.option(
+    "--type",
+    "boost_type",
+    type=click.Choice(["mini", "small", "normal", "super"], case_sensitive=False),
+    default="mini",
+    help="Boost type to purchase (mini: 100 coins, small: 450, normal: 1000, super: 2100).",
+)
+@click.option("--dry-run", is_flag=True, help="Simulate without spending coins.")
+def boost_command(account_opt: Optional[str], boost_type: str, dry_run: bool) -> None:
+    """Check or spend coins on Thundr boosts (mini, small, normal, super)."""
+    cost_map = {"mini": 100, "small": 450, "normal": 1000, "super": 2100}
+    cost = cost_map.get(boost_type.lower(), 100)
+    console.print(
+        f"[bold cyan]⚡ Thundr Boost Manager (Type: {boost_type.upper()}, Cost: {cost} coins)[/bold cyan]"
+    )
+
+    account_mgr = AccountManager()
+    accounts = account_mgr.list_accounts(enabled_only=True)
+    if account_opt:
+        key = account_opt.strip().lower()
+        accounts = [a for a in accounts if a.username.lower() == key]
+        if not accounts:
+            console.print(f"[bold red]❌ Account '{account_opt}' not found.[/bold red]")
+            return
+
+    if not accounts:
+        console.print("[yellow]⚠️ No accounts found.[/yellow]")
+        return
+
+    eligible = [a for a in accounts if (a.balance or 0) >= cost]
+    console.print(
+        f"Found [bold green]{len(eligible)}/{len(accounts)}[/bold green] account(s) eligible for {boost_type} boost (balance >= {cost})."
+    )
+
+    if not account_opt and not dry_run:
+        console.print("[dim]Pass `-a <username>` to purchase boost for a specific account.[/dim]")
+        return
+
+    if account_opt:
+        acc = accounts[0]
+        if (acc.balance or 0) < cost:
+            console.print(
+                f"[red]❌ Account '{acc.username}' balance ({acc.balance}) is lower than boost cost ({cost}).[/red]"
+            )
+            return
+
+        if dry_run:
+            console.print(
+                f"[yellow]🧪 [DRY RUN] Would purchase {boost_type} boost for '{acc.username}'.[/yellow]"
+            )
+            return
+
+        console.print(f"[yellow]Purchasing {boost_type} boost for '{acc.username}'...[/yellow]")
+        api_client = ThundrApiClient()
+        browser_client = ThundrBrowserClient(
+            headless=os.getenv("HEADLESS_BROWSER", "true").lower() == "true"
+        )
+        client = ThundrClient(api_client, browser_client)
+        try:
+            res = client.spend_boost(acc, boost=boost_type)
+            console.print(
+                f"[bold green]✔ Boost purchased successfully for '{acc.username}'![/bold green] Response: {res}"
+            )
+        except Exception as e:
+            console.print(f"[bold red]❌ Failed to purchase boost: {e}[/bold red]")
+
+
+@cli.command("bot")
+@click.option("--poll-interval", "-p", default=5, help="Polling interval in seconds (default: 5s).")
+def bot_command(poll_interval: int) -> None:
+    """Run interactive autonomous Telegram bot listening for /goal, /boost, /status, /claim."""
+    import time
+    console.print("[bold green]🤖 Starting Thundr Telegram Bot Listener...[/bold green]")
+    notifier = TelegramNotifier()
+    if not notifier.is_configured:
+        console.print("[bold red]❌ Telegram bot token or chat ID not configured.[/bold red]")
+        return
+
+    account_mgr = AccountManager()
+    console.print(
+        f"[cyan]Listening for commands from chat {notifier.chat_id} (interval: {poll_interval}s)... Press Ctrl+C to stop.[/cyan]"
+    )
+    offset = None
+    try:
+        while True:
+            updates = notifier.get_updates(offset=offset, timeout=poll_interval)
+            for upd in updates:
+                offset = upd.get("update_id", 0) + 1
+                msg = upd.get("message") or {}
+                chat = msg.get("chat") or {}
+                if str(chat.get("id")) != str(notifier.chat_id):
+                    continue
+                text = msg.get("text", "").strip()
+                if not text.startswith("/"):
+                    continue
+                console.print(f"[yellow]📩 Received Telegram command: {text}[/yellow]")
+                accounts = account_mgr.list_accounts(enabled_only=True)
+                reply = notifier.handle_command(text, accounts=accounts)
+                if reply:
+                    notifier.send_raw_message(reply)
+                elif text.startswith("/claim") or text.startswith("/run"):
+                    notifier.send_raw_message("🚀 <i>Запускаю сбор наград для всех аккаунтов...</i>")
+                    _execute_rewards()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Bot listener stopped by user.[/yellow]")
+
+
 @cli.command("daemon")
 @click.option("--interval", "-i", default=3, help="Check interval in hours (default: 3).")
 @click.option("--dry-run", is_flag=True, help="Simulate without claiming.")
@@ -425,3 +595,4 @@ def daemon_command(interval: int, dry_run: bool) -> None:
 
 if __name__ == "__main__":
     cli()
+

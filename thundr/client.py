@@ -205,6 +205,30 @@ class ThundrApiClient:
             return data
         raise ThundrApiError(f"Failed to claim crate: HTTP {status_code}", status_code, text)
 
+    def spend_boost(
+        self, user_id: str, hashed_token: str, boost: str = "mini"
+    ) -> Dict[str, Any]:
+        """Spend coins on a boost (mini, small, normal, super)."""
+        valid_boosts = {"mini", "small", "normal", "super"}
+        boost_code = boost.lower().strip()
+        if boost_code not in valid_boosts:
+            raise ValueError(
+                f"Invalid boost type '{boost}'. Must be one of: {', '.join(sorted(valid_boosts))}"
+            )
+
+        url = f"{self.base_id_url}/api/coins/spend/boost"
+        status_code, data, text = self._request(
+            "POST",
+            url,
+            json_data={"user_id": user_id, "hashed_token": hashed_token, "boost": boost_code},
+            headers={"Content-Type": "application/json"},
+        )
+        if status_code == 200:
+            return data
+        raise ThundrApiError(
+            f"Failed to spend boost '{boost_code}': HTTP {status_code}", status_code, text
+        )
+
     def login(self, username: str, password: str) -> AccountSession:
         """Authenticate via direct HTTP API. Returns AccountSession with user_id and hashed_token."""
         url = f"{self.base_id_url}/api/users/login"
@@ -440,3 +464,32 @@ class ThundrClient:
                 account.session = session
                 return self.api.get_balance(session.user_id, session.hashed_token)
             raise
+
+    def spend_boost(
+        self,
+        account: AccountRecord,
+        boost: str = "mini",
+        auto_reauth: bool = True,
+    ) -> Dict[str, Any]:
+        """Spend coins on a boost with automatic re-auth on 401."""
+        if not account.has_session:
+            if auto_reauth and account.has_credentials:
+                self.ensure_valid_session(account)
+            else:
+                raise ThundrAuthError(f"No valid session for '{account.username}'")
+
+        assert account.session is not None
+        try:
+            return self.api.spend_boost(
+                account.session.user_id, account.session.hashed_token, boost=boost
+            )
+        except ThundrAuthError:
+            if auto_reauth and account.has_credentials:
+                logger.info(f"Re-authenticating '{account.username}' after 401...")
+                session = self.login(account.username, account.password)  # type: ignore
+                account.session = session
+                return self.api.spend_boost(
+                    session.user_id, session.hashed_token, boost=boost
+                )
+            raise
+

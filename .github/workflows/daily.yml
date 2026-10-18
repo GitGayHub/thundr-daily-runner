@@ -31,6 +31,10 @@ concurrency:
   group: thundr-daily-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   claim-rewards:
     runs-on: ubuntu-latest
@@ -55,13 +59,16 @@ jobs:
         run: |
           playwright install --with-deps chromium
 
-      - name: Restore Telegram State Cache
+      - name: Restore Persistent Runtime Data
         uses: actions/cache/restore@v4
         with:
-          path: data/telegram_state.json
-          key: telegram-state-${{ github.run_id }}
+          path: |
+            data/telegram_state.json
+            data/history.json
+            data/history.csv
+          key: thundr-data-${{ github.run_id }}
           restore-keys: |
-            telegram-state-
+            thundr-data-
 
       - name: Run Thundr Daily Claimer
         env:
@@ -87,13 +94,16 @@ jobs:
           fi
           python cli.py run $DRY_RUN_FLAG $FORCE_FLAG
 
-      - name: Save Telegram State Cache
+      - name: Save Persistent Runtime Data
         if: always()
         continue-on-error: true
         uses: actions/cache/save@v4
         with:
-          path: data/telegram_state.json
-          key: telegram-state-${{ github.run_id }}
+          path: |
+            data/telegram_state.json
+            data/history.json
+            data/history.csv
+          key: thundr-data-${{ github.run_id }}
 
       - name: Upload Claim History & Statistics
         if: always()
@@ -105,4 +115,23 @@ jobs:
             data/history.json
             data/history.csv
           if-no-files-found: ignore
-          retention-days: 30
+          retention-days: 1
+
+      - name: Send Failure Alert to Telegram
+        if: failure()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -c "
+          import os, requests
+          token = os.getenv('TELEGRAM_BOT_TOKEN')
+          chat_id = os.getenv('TELEGRAM_CHAT_ID')
+          if token and chat_id:
+              text = '❌ <b>Thundr Daily Claimer — Ошибка в GitHub Actions!</b>\n\nЗапуск завершился с ошибкой. Проверьте логи во вкладке Actions.'
+              try:
+                  requests.post(f'https://api.telegram.org/bot{token}/sendMessage', json={'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}, timeout=10)
+              except Exception:
+                  pass
+          "

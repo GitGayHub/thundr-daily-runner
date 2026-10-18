@@ -122,6 +122,14 @@ class AccountRecord:
     def has_session(self) -> bool:
         return bool(self.session and self.session.is_valid)
 
+    @property
+    def balance(self) -> int:
+        return self.last_status.coin_balance if self.last_status else 0
+
+    @property
+    def status(self) -> Optional[DailyCrateStatus]:
+        return self.last_status
+
     def to_dict(self, include_secrets: bool = True) -> Dict[str, Any]:
         result: Dict[str, Any] = {
             "username": self.username,

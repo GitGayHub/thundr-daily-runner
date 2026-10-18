@@ -164,9 +164,9 @@ class TelegramNotifier:
         # 'all' mode
         return True
 
-    def notify_single_run(self, ctx: StateMachineContext) -> bool:
+    def notify_single_run(self, ctx: StateMachineContext, force: bool = False) -> bool:
         """Send notification for a single account execution."""
-        if not self.should_notify_single(ctx):
+        if not force and not self.should_notify_single(ctx):
             return False
 
         safe_user = html.escape(ctx.username)
@@ -326,6 +326,7 @@ class TelegramNotifier:
             f"💰 <b>Общий баланс:</b> {total_balance} монет" + (f" (+{total_coins_earned})" if total_coins_earned > 0 else ""),
             f"📊 <b>В среднем на 1 аккаунт:</b> {avg_balance:.1f} монет",
             drop_50_line,
+            f"🎯 <b>Цель (50+ баланс):</b> {sum(1 for b in balances if b >= 50)}/{total_accounts} акк." + (f" | ⚡ Буст (100+): {sum(1 for b in balances if b >= 100)}" if any(b >= 100 for b in balances) else ""),
             f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет)",
             f"━━━━━━━━━━━━━━━━━━━",
             f"⏳ <b>До следующего кейса:</b> {rem_str}",
@@ -346,4 +347,78 @@ class TelegramNotifier:
             import time
             self._save_last_summary_ts(time.time())
         return ok
+
+    def get_updates(self, offset: Optional[int] = None, timeout: int = 5) -> List[Dict[str, Any]]:
+        """Fetch incoming Telegram updates via long polling."""
+        if not self.is_configured:
+            return []
+        url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
+        params: Dict[str, Any] = {"timeout": timeout}
+        if offset is not None:
+            params["offset"] = offset
+        try:
+            resp = requests.get(url, params=params, timeout=timeout + 5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok"):
+                    return data.get("result", [])
+        except Exception as e:
+            logger.debug(f"Failed to fetch Telegram updates: {e}")
+        return []
+
+    def handle_command(self, command: str, accounts: Optional[List[Any]] = None) -> Optional[str]:
+        """Process incoming slash commands (/goal, /boost, /status, /help, /start)."""
+        cmd = command.strip().lower()
+        if cmd.startswith("/goal"):
+            if not accounts:
+                return "🎯 <b>Thundr Goal</b>\n\nНет данных об аккаунтах для расчета цели."
+            balances = [getattr(a, "balance", 0) or 0 for a in accounts]
+            total_bal = sum(balances)
+            count_50 = sum(1 for b in balances if b >= 50)
+            count_100 = sum(1 for b in balances if b >= 100)
+            total = len(accounts)
+            pct = (count_50 / total * 100) if total > 0 else 0
+            return (
+                f"🎯 <b>THUNDR GOAL REPORT — ПРОГРЕСС ЦЕЛИ</b>\n\n"
+                f"👥 Всего аккаунтов: <b>{total}</b>\n"
+                f"💰 Общий баланс: <b>{total_bal}</b> монет\n"
+                f"🎯 <b>Цель 1 (50+ монет):</b> <b>{count_50}/{total}</b> ({pct:.1f}%)\n"
+                f"⚡ <b>Цель 2 (100+ монет / Mini Boost):</b> <b>{count_100}/{total}</b>\n"
+                f"📈 <i>Средний баланс: {total_bal / total:.1f} монет/акк.</i>"
+            )
+        elif cmd.startswith("/boost"):
+            ready_mini = sum(1 for a in accounts if (getattr(a, "balance", 0) or 0) >= 100) if accounts else 0
+            return (
+                f"⚡ <b>THUNDR BOOST STORE — МАГАЗИН БУСТОВ</b>\n\n"
+                f"• <b>Mini Boost:</b> 100 монет (1 час)\n"
+                f"• <b>Small Boost:</b> 450 монет (10 часов)\n"
+                f"• <b>Normal Boost:</b> 1000 монет (30 часов)\n"
+                f"• <b>Super Boost:</b> 2100 монет (60 часов)\n\n"
+                f"💎 Аккаунтов с балансом >= 100 монет (доступен Mini Boost): <b>{ready_mini}</b>\n\n"
+                f"💡 <i>Используйте <code>python cli.py boost -a &lt;user&gt;</code> для активации буста.</i>"
+            )
+        elif cmd.startswith("/status") or cmd.startswith("/check"):
+            if not accounts:
+                return "🔍 Нет данных об аккаунтах."
+            ready = sum(1 for a in accounts if getattr(getattr(a, "status", None), "available", False))
+            total = len(accounts)
+            return (
+                f"📊 <b>THUNDR СТАТУС</b>\n\n"
+                f"👥 Всего аккаунтов: <b>{total}</b>\n"
+                f"🎁 Доступно кейсов сейчас: <b>{ready}/{total}</b>\n"
+                f"⏳ На перезарядке: <b>{total - ready}/{total}</b>\n\n"
+                f"💡 <i>Отправьте /claim чтобы собрать готовые кейсы.</i>"
+            )
+        elif cmd.startswith("/start") or cmd.startswith("/help"):
+            return (
+                f"⚡ <b>Thundr Daily Rewards Bot</b>\n\n"
+                f"Доступные команды:\n"
+                f"• /goal — Прогресс достижения цели (50+ монет)\n"
+                f"• /boost — Информация о доступных бустах и ценах\n"
+                f"• /status — Проверка статуса кейсов\n"
+                f"• /claim — Запуск сбора наград\n"
+                f"• /help — Список команд"
+            )
+        return None
+
 

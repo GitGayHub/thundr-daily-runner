@@ -158,3 +158,77 @@ def test_cli_claim(mock_sm_cls, tmp_path, monkeypatch):
     assert "dave" in res_pos.output
     assert "CLAIMED" in res_pos.output
 
+
+@patch("cli.TelegramNotifier")
+@patch("cli.DailyCrateStateMachine")
+def test_cli_run_with_telegram(mock_sm_cls, mock_tg_cls, tmp_path, monkeypatch):
+    """Ensure cli run with Telegram enabled does not raise NameError (e.g. target_accounts)."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    mock_notifier = MagicMock()
+    mock_notifier.mode = "digest_2x"
+    mock_tg_cls.return_value = mock_notifier
+
+    mock_sm = MagicMock()
+    mock_ctx = StateMachineContext(
+        username="dave",
+        current_state=CrateState.CLAIMED,
+        initial_balance=10,
+        final_balance=25,
+        coins_earned=15,
+        status=DailyCrateStatus(streak=3),
+    )
+    mock_sm.run.return_value = mock_ctx
+    mock_sm_cls.return_value = mock_sm
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "dave", "-p", "pwd"])
+    runner.invoke(cli, ["add-account", "-u", "alice", "-p", "pwd"])
+
+    # Multi-account run with Telegram
+    res_multi = runner.invoke(cli, ["run"])
+    assert res_multi.exit_code == 0
+    assert mock_notifier.notify_summary.called
+
+    # Single-account run with Telegram (tests len(accounts) == 1 path)
+    res_single = runner.invoke(cli, ["run", "-a", "dave"])
+    assert res_single.exit_code == 0
+    assert mock_notifier.notify_single_run.called
+
+
+def test_cli_goal(tmp_path, monkeypatch):
+    """Test cli goal command tracking."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "alice", "-p", "pwd"])
+
+    res = runner.invoke(cli, ["goal", "--target", "50", "--no-telegram"])
+    assert res.exit_code == 0
+    assert "Goal Progress" in res.output
+    assert "alice" in res.output
+
+
+@patch("cli.ThundrClient")
+def test_cli_boost(mock_client_cls, tmp_path, monkeypatch):
+    """Test cli boost command."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "alice", "-p", "pwd"])
+
+    # List/check boost eligibility
+    res = runner.invoke(cli, ["boost", "--type", "mini"])
+    assert res.exit_code == 0
+    assert "Thundr Boost Manager" in res.output
+
+
