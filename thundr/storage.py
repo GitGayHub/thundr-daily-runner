@@ -165,6 +165,17 @@ class StorageManager:
                 return e.coins_earned
         return None
 
+    def get_last_balance_for_user(self, username: str) -> Optional[int]:
+        """Find the latest recorded final_balance or initial_balance for this user."""
+        key = username.strip().lower()
+        for e in reversed(self._entries):
+            if e.username.lower() == key:
+                if e.final_balance is not None:
+                    return e.final_balance
+                if e.initial_balance is not None:
+                    return e.initial_balance
+        return None
+
     def get_summary(self) -> Dict[str, Any]:
         """Calculate high-level performance metrics and statistics."""
         total_runs = len(self._entries)

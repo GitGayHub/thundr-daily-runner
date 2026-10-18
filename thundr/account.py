@@ -124,7 +124,16 @@ class AccountRecord:
 
     @property
     def balance(self) -> int:
-        return self.last_status.coin_balance if self.last_status else 0
+        if self.last_status and self.last_status.coin_balance is not None:
+            return self.last_status.coin_balance
+        try:
+            from thundr.storage import StorageManager
+            bal = StorageManager().get_last_balance_for_user(self.username)
+            if bal is not None:
+                return bal
+        except Exception:
+            pass
+        return 0
 
     @property
     def status(self) -> Optional[DailyCrateStatus]:

@@ -8,7 +8,8 @@ echo.
 echo Running initial claim across all configured accounts...
 python cli.py run
 echo.
-echo Starting continuous background monitoring daemon (every 5 hours)...
+echo Starting autonomous background daemon and live Telegram bot listener...
+echo Auto-claims every 5 hours + instant response to /goal, /boost, /status, /claim
 echo Press Ctrl+C at any time to pause or exit.
 echo.
 python cli.py daemon --interval 5

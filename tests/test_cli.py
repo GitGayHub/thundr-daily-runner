@@ -231,4 +231,43 @@ def test_cli_boost(mock_client_cls, tmp_path, monkeypatch):
     assert res.exit_code == 0
     assert "Thundr Boost Manager" in res.output
 
+    # Boost --all with dry-run
+    res_all = runner.invoke(cli, ["boost", "--all", "--type", "mini", "--dry-run"])
+    assert res_all.exit_code == 0
+
+
+@patch("cli.DailyCrateStateMachine")
+def test_cli_run_account_exception_isolation(mock_sm_cls, tmp_path, monkeypatch):
+    """Ensure an unhandled exception on one account does not crash the run for others."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "failing_user", "-p", "pwd"])
+    runner.invoke(cli, ["add-account", "-u", "healthy_user", "-p", "pwd"])
+
+    mock_sm = MagicMock()
+
+    def side_effect(acc, dry_run=False):
+        if acc.username == "failing_user":
+            raise RuntimeError("Unexpected network disconnect")
+        return StateMachineContext(
+            username=acc.username,
+            current_state=CrateState.CLAIMED,
+            final_balance=20,
+            coins_earned=10,
+        )
+
+    mock_sm.run.side_effect = side_effect
+    mock_sm_cls.return_value = mock_sm
+
+    res = runner.invoke(cli, ["run", "--no-telegram"])
+    assert res.exit_code == 0
+    assert "failing_user" in res.output
+    assert "FAILED" in res.output
+    assert "healthy_user" in res.output
+    assert "CLAIMED" in res.output
+
 

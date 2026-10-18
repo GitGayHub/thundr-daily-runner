@@ -199,3 +199,51 @@ def test_telegram_handle_commands():
     assert "/boost" in help_res
 
 
+def test_telegram_handle_commands_extended(tmp_path, monkeypatch):
+    state_file = tmp_path / "tg_state.json"
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(state_file))
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+
+    acc = MagicMock()
+    acc.username = "gamasek33"
+    acc.balance = 120
+    acc.status = MagicMock()
+    acc.status.streak = 5
+    acc.status.available = False
+
+    # 1. /goal for specific account
+    res_goal_user = notifier.handle_command("/goal gamasek33", accounts=[acc])
+    assert res_goal_user is not None
+    assert "gamasek33" in res_goal_user
+    assert "Цель достигнута" in res_goal_user
+
+    # 2. /goal for unknown account
+    res_goal_unk = notifier.handle_command("/goal unknown_user", accounts=[acc])
+    # Pool summary returned since account not found
+    assert res_goal_unk is not None
+    assert "GOAL REPORT" in res_goal_unk
+
+    # 3. /boost for specific account
+    res_boost_user = notifier.handle_command("/boost gamasek33", accounts=[acc])
+    assert res_boost_user is not None
+    assert "gamasek33" in res_boost_user
+    assert "120" in res_boost_user
+
+    # 4. /boost buy with client mock
+    mock_client = MagicMock()
+    mock_client.spend_boost.return_value = {"message": "Success"}
+    res_buy = notifier.handle_command("/boost buy gamasek33 mini", accounts=[acc], client=mock_client)
+    assert res_buy is not None
+    assert "успешно активирован" in res_buy
+    assert mock_client.spend_boost.called
+
+    # 5. State tracking: update_id and summary_ts persistence without conflict
+    assert notifier.get_last_update_id() is None
+    notifier.save_last_update_id(999)
+    assert notifier.get_last_update_id() == 999
+
+    notifier._save_last_summary_ts(123456.0)
+    assert notifier._get_last_summary_ts() == 123456.0
+    assert notifier.get_last_update_id() == 999
+
+
