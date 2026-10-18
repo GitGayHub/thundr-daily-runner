@@ -99,6 +99,15 @@ class DailyCrateStatus:
             "server_now": self.server_now,
         }
 
+    @property
+    def is_cooldown(self) -> bool:
+        """Return True if daily crate is on cooldown."""
+        return not self.available
+
+    def is_claimed_for_cycle(self, cycle_date: str) -> bool:
+        """Check if reward was claimed for a specific UTC cycle date (YYYY-MM-DD)."""
+        return bool(self.last_claimed_on and self.last_claimed_on == cycle_date)
+
 
 @dataclass
 class AccountRecord:

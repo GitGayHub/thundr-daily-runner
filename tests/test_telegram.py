@@ -2,6 +2,7 @@
 Unit tests for thundr.telegram module.
 """
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -330,6 +331,130 @@ def test_telegram_boost_buy_updates_balance():
     assert res is not None
     assert "успешно активирован" in res
     assert acc.last_status.coin_balance == 50  # 150 - 100
+
+
+def test_telegram_determine_game_cycle_midnight_window():
+    """Between 00:00 CEST and 02:00 CEST (before 00:00 UTC reset), active cycle is yesterday UTC."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", tz_name="Europe/Berlin")
+
+    ctx = StateMachineContext(
+        username="u1",
+        current_state=CrateState.COOLDOWN,
+        status=DailyCrateStatus(
+            available=False,
+            last_claimed_on="2026-10-18",
+            next_reset_at="2026-10-19T00:00:00Z",
+            server_now="2026-10-18T22:23:00Z",
+        ),
+    )
+
+    cycle_info = notifier.determine_game_cycle([ctx])
+    assert cycle_info["cycle_date_str"] == "2026-10-18"
+    assert cycle_info["cycle_display"] == "18.10"
+    assert cycle_info["next_crate_display"] == "19.10"
+
+
+def test_telegram_format_summary_midnight_window_no_false_claim():
+    """At 00:23 CEST, report must state reward for 18.10 is claimed and next is in 1h 36m for 19.10."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", tz_name="Europe/Berlin")
+
+    contexts = [
+        StateMachineContext(
+            username=f"user_{i}",
+            current_state=CrateState.COOLDOWN,
+            initial_balance=50,
+            final_balance=50,
+            status=DailyCrateStatus(
+                available=False,
+                coin_balance=50,
+                last_claimed_on="2026-10-18",
+                next_reset_at="2026-10-19T00:00:00Z",
+                server_now="2026-10-18T22:23:45Z",
+            ),
+        )
+        for i in range(50)
+    ]
+
+    report = notifier.format_summary_report(contexts)
+
+    # Must correctly identify reward for 18.10 as claimed on all 50 accounts
+    assert "Награда за 18.10:</b> ✅ Забрана со всех (50/50)" in report
+
+    # Must NEVER falsely claim that 19.10 was claimed
+    assert "Награда за 19.10:</b> ✅ Забрана" not in report
+
+    # Next crate line must indicate upcoming crate for 19.10
+    assert "До следующего кейса (за 19.10):" in report
+
+
+def test_telegram_format_summary_after_reset_not_claimed():
+    """After 02:00 CEST (00:00 UTC), active cycle is 19.10, so accounts with 18.10 claims are not yet claimed."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", tz_name="Europe/Berlin")
+
+    contexts = [
+        StateMachineContext(
+            username=f"user_{i}",
+            current_state=CrateState.READY,
+            initial_balance=50,
+            final_balance=50,
+            status=DailyCrateStatus(
+                available=True,
+                coin_balance=50,
+                last_claimed_on="2026-10-18",
+                next_reset_at="2026-10-19T00:00:00Z",  # Reset has passed
+                server_now="2026-10-19T00:05:00Z",
+            ),
+        )
+        for i in range(50)
+    ]
+
+    report = notifier.format_summary_report(contexts)
+    # Must report that 19.10 reward is available and NOT claimed
+    assert "Награда за 19.10:</b> ⏳ Ещё не забрана (0/50 — доступна!)" in report
+    assert "доступен сейчас! ⚡" in report
+
+
+def test_telegram_format_summary_after_reset_claimed():
+    """After reset and claiming on 19.10, report shows 19.10 claimed and next crate for 20.10."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", tz_name="Europe/Berlin")
+
+    contexts = [
+        StateMachineContext(
+            username=f"user_{i}",
+            current_state=CrateState.CLAIMED,
+            initial_balance=50,
+            final_balance=60,
+            coins_earned=10,
+            status=DailyCrateStatus(
+                available=False,
+                coin_balance=60,
+                last_claimed_on="2026-10-19",
+                next_reset_at="2026-10-20T00:00:00Z",
+                server_now="2026-10-19T00:10:00Z",
+            ),
+        )
+        for i in range(50)
+    ]
+
+    report = notifier.format_summary_report(contexts)
+    assert "Награда за 19.10:</b> ✅ Забрана со всех (50/50)" in report
+    assert "До следующего кейса (за 20.10):" in report
+
+
+def test_telegram_status_command_includes_reset_time():
+    """Verify /status includes local reset time if reset timestamp is available."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", tz_name="Europe/Berlin")
+    acc = MagicMock()
+    acc.username = "alice"
+    acc.status = MagicMock()
+    acc.status.available = False
+    acc.status.next_reset_at = "2026-10-19T00:00:00Z"
+
+    with patch.object(notifier, "format_time_remaining", return_value="1 ч 36 мин"):
+        status_res = notifier.handle_command("/status", accounts=[acc])
+        assert status_res is not None
+        assert "1 ч 36 мин" in status_res
+        assert "02:00:00" in status_res or "01:00:00" in status_res
 
 
 

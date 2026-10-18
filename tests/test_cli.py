@@ -93,6 +93,7 @@ def test_cli_check(mock_client_cls, tmp_path, monkeypatch):
     assert "charlie" in res.output
     assert "80" in res.output
     assert "YES" in res.output
+    assert "Server Game Day:" in res.output
 
 
 @patch("cli.DailyCrateStateMachine")

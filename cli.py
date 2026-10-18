@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -310,7 +311,13 @@ def check_command(account_arg: Optional[str], account_opt: Optional[str]) -> Non
         try:
             status = client.get_crate_status(acc)
             avail_str = "[bold green]YES[/bold green]" if status.available else "[yellow]COOLDOWN[/yellow]"
-            rem_str = TelegramNotifier.format_time_remaining(status.next_reset_at)
+            server_now_dt = None
+            if status.server_now:
+                try:
+                    server_now_dt = datetime.fromisoformat(status.server_now.replace("Z", "+00:00"))
+                except Exception:
+                    pass
+            rem_str = TelegramNotifier.format_time_remaining(status.next_reset_at, now_dt=server_now_dt)
             last_rew = f"+{acc.last_reward_coins}" if acc.last_reward_coins else "N/A"
             table.add_row(
                 acc.username,
@@ -327,6 +334,12 @@ def check_command(account_arg: Optional[str], account_opt: Optional[str]) -> Non
             table.add_row(acc.username, "[red]ERROR[/red]", "N/A", "N/A", "N/A", "N/A", str(e)[:30])
 
     console.print(table)
+    notifier = TelegramNotifier()
+    cycle_info = notifier.determine_game_cycle(accounts)
+    console.print(
+        f"\n[dim]Server Game Day: [bold]{cycle_info['cycle_display']}[/bold] | "
+        f"Next Crate ({cycle_info['next_crate_display']}): {notifier.format_time_remaining(cycle_info['next_reset_iso'], now_dt=cycle_info['server_now_dt'])}[/dim]"
+    )
 
 
 @cli.command("add-account")

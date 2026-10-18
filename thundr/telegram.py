@@ -8,7 +8,7 @@ from __future__ import annotations
 import html
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -103,13 +103,13 @@ class TelegramNotifier:
             return iso_str
 
     @staticmethod
-    def format_time_remaining(iso_str: Optional[str]) -> str:
+    def format_time_remaining(iso_str: Optional[str], now_dt: Optional[datetime] = None) -> str:
         """Calculate remaining time until iso_str timestamp as human-readable string."""
         if not iso_str:
             return "неизвестно"
         try:
             dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-            now = datetime.now(timezone.utc)
+            now = now_dt if now_dt is not None else datetime.now(timezone.utc)
             diff = dt - now
             total_seconds = int(diff.total_seconds())
             if total_seconds <= 0:
@@ -312,6 +312,14 @@ class TelegramNotifier:
                     if storage:
                         last_rew = storage.get_last_reward_for_user(username)
 
+                if status is None and getattr(item, "last_claimed_at", None):
+                    claimed_on = str(item.last_claimed_at)[:10] if item.last_claimed_at else None
+                    status = DailyCrateStatus(
+                        available=False,
+                        coin_balance=bal,
+                        last_claimed_on=claimed_on,
+                    )
+
                 if status and getattr(status, "available", False):
                     state = CrateState.READY
                 else:
@@ -328,6 +336,101 @@ class TelegramNotifier:
                 )
                 contexts.append(ctx)
         return contexts
+
+    def determine_game_cycle(
+        self, contexts: Optional[List[Any]] = None
+    ) -> Dict[str, Any]:
+        """Determine the active game server cycle, display date, and next crate timing.
+
+        In Thundr, daily rewards and crates follow the game server's UTC schedule,
+        where the daily reset occurs at precisely 00:00:00 UTC.
+
+        Between local midnight (e.g. 00:00 CEST) and server reset (00:00 UTC / 02:00 CEST),
+        the local date is ahead of the game server's day. During this window, the
+        active/claimed reward cycle belongs to the server's day (e.g. 18.10), while
+        the upcoming crate to be unlocked at reset belongs to the new day (e.g. 19.10).
+        """
+        now_local = datetime.now(self.tz)
+        local_date_str = now_local.strftime("%Y-%m-%d")
+        local_display = now_local.strftime("%d.%m")
+
+        # 1. Server time: prefer server_now from crate status if available, else current UTC
+        server_now_dt: Optional[datetime] = None
+        if contexts:
+            for c in contexts:
+                st = getattr(c, "status", None)
+                snow = getattr(st, "server_now", None) if st else None
+                if snow and isinstance(snow, str):
+                    try:
+                        server_now_dt = datetime.fromisoformat(snow.replace("Z", "+00:00"))
+                        break
+                    except Exception:
+                        pass
+
+        if server_now_dt is None:
+            server_now_dt = datetime.now(timezone.utc)
+
+        # 2. Extract reset timestamps from contexts
+        future_resets = []
+        all_resets = []
+        if contexts:
+            for c in contexts:
+                st = getattr(c, "status", None)
+                nreset = getattr(st, "next_reset_at", None) if st else None
+                if nreset and isinstance(nreset, str):
+                    try:
+                        rdt = datetime.fromisoformat(nreset.replace("Z", "+00:00"))
+                        all_resets.append((rdt, nreset))
+                        if rdt > server_now_dt:
+                            future_resets.append((rdt, nreset))
+                    except Exception:
+                        pass
+
+        earliest_future_reset: Optional[datetime] = None
+        earliest_future_reset_str: Optional[str] = None
+        if future_resets:
+            future_resets.sort(key=lambda x: x[0])
+            earliest_future_reset, earliest_future_reset_str = future_resets[0]
+
+        # 3. Determine active cycle date and next crate date
+        if earliest_future_reset and earliest_future_reset > server_now_dt:
+            # Active cycle that was claimed or is in cooldown ends at earliest_future_reset.
+            cycle_dt = earliest_future_reset - timedelta(days=1)
+            cycle_date_str = cycle_dt.strftime("%Y-%m-%d")
+            cycle_display = cycle_dt.strftime("%d.%m")
+
+            # Next crate unlocks at earliest_future_reset (display in local timezone)
+            next_crate_local_dt = earliest_future_reset.astimezone(self.tz)
+            next_crate_display = next_crate_local_dt.strftime("%d.%m")
+            next_reset_iso = earliest_future_reset_str
+        else:
+            # Server reset has already occurred or no future reset in contexts
+            cycle_date_str = server_now_dt.strftime("%Y-%m-%d")
+            cycle_display = server_now_dt.strftime("%d.%m")
+
+            # Calculate next reset (upcoming 00:00:00 UTC)
+            next_reset_utc = datetime(
+                server_now_dt.year, server_now_dt.month, server_now_dt.day, tzinfo=timezone.utc
+            ) + timedelta(days=1)
+            next_crate_display = next_reset_utc.astimezone(self.tz).strftime("%d.%m")
+            if all_resets:
+                # If there were past resets, use the latest one so format_time_remaining returns available now
+                next_reset_iso = max(all_resets, key=lambda x: x[0])[1]
+            else:
+                next_reset_iso = next_reset_utc.strftime("%Y-%m-%dT00:00:00Z")
+
+        is_mismatch = (local_date_str != cycle_date_str)
+
+        return {
+            "cycle_date_str": cycle_date_str,
+            "cycle_display": cycle_display,
+            "next_reset_iso": next_reset_iso,
+            "next_crate_display": next_crate_display,
+            "is_mismatch": is_mismatch,
+            "server_now_dt": server_now_dt,
+            "local_date_str": local_date_str,
+            "local_display": local_display,
+        }
 
     def format_summary_report(self, items: List[Any]) -> str:
         """Format the full executive summary matching Screenshot 2."""
@@ -350,34 +453,45 @@ class TelegramNotifier:
         total_balance = sum(balances)
         avg_balance = (total_balance / total_accounts) if total_accounts > 0 else 0.0
 
-        # Date and claim status for today
-        today_date_str = datetime.now(self.tz).strftime("%Y-%m-%d")
-        today_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        today_display = datetime.now(self.tz).strftime("%d.%m")
+        # Date and claim status aligned with game server cycle / reset time
+        cycle_info = self.determine_game_cycle(contexts)
+        cycle_date_str = cycle_info["cycle_date_str"]
+        cycle_display = cycle_info["cycle_display"]
+        next_crate_display = cycle_info["next_crate_display"]
+        next_reset_ts = cycle_info["next_reset_iso"]
+        server_now_dt = cycle_info["server_now_dt"]
 
         claimed_today_count = 0
         for c in contexts:
             last_claimed = getattr(c.status, "last_claimed_on", None) if c.status else None
+            if not last_claimed and getattr(c, "last_claimed_at", None):
+                try:
+                    last_claimed = str(c.last_claimed_at)[:10]
+                except Exception:
+                    pass
+
             if c.current_state == CrateState.CLAIMED:
                 claimed_today_count += 1
-            elif last_claimed and last_claimed in (today_date_str, today_utc_str):
+            elif last_claimed and last_claimed == cycle_date_str:
                 claimed_today_count += 1
             elif last_claimed is None and c.current_state == CrateState.COOLDOWN and c.status and not getattr(c.status, "available", False):
                 next_reset = getattr(c.status, "next_reset_at", None)
                 if next_reset:
                     try:
-                        reset_dt = datetime.fromisoformat(next_reset.replace("Z", "+00:00"))
-                        if reset_dt > datetime.now(timezone.utc):
-                            claimed_today_count += 1
+                        acc_rdt = datetime.fromisoformat(next_reset.replace("Z", "+00:00"))
+                        if acc_rdt > server_now_dt:
+                            acc_cycle = (acc_rdt - timedelta(days=1)).strftime("%Y-%m-%d")
+                            if acc_cycle == cycle_date_str:
+                                claimed_today_count += 1
                     except Exception:
                         pass
 
-        if claimed_today_count == total_accounts:
-            date_claim_line = f"📅 <b>Награда за {today_display}:</b> ✅ Забрана со всех ({total_accounts}/{total_accounts})"
+        if claimed_today_count == total_accounts and total_accounts > 0:
+            date_claim_line = f"📅 <b>Награда за {cycle_display}:</b> ✅ Забрана со всех ({total_accounts}/{total_accounts})"
         elif claimed_today_count == 0:
-            date_claim_line = f"📅 <b>Награда за {today_display}:</b> ⏳ Ещё не забрана (0/{total_accounts} — доступна!)"
+            date_claim_line = f"📅 <b>Награда за {cycle_display}:</b> ⏳ Ещё не забрана (0/{total_accounts} — доступна!)"
         else:
-            date_claim_line = f"📅 <b>Награда за {today_display}:</b> ⚠️ Забрана частично ({claimed_today_count}/{total_accounts})"
+            date_claim_line = f"📅 <b>Награда за {cycle_display}:</b> ⚠️ Забрана частично ({claimed_today_count}/{total_accounts})"
 
         # Accounts that dropped 50+ coins from the crate
         dropped_50_plus = []
@@ -402,14 +516,14 @@ class TelegramNotifier:
         raw_bal = (best_ctx.final_balance or best_ctx.initial_balance or 0) if best_ctx else 0
         best_bal = int(raw_bal) if isinstance(raw_bal, (int, float)) else 0
 
-        # Next reset timing
-        next_resets = [
-            c.status.next_reset_at
-            for c in contexts
-            if c.status and getattr(c.status, "next_reset_at", None) and isinstance(c.status.next_reset_at, str)
-        ]
-        next_reset_ts = min(next_resets) if next_resets else None
-        rem_str = self.format_time_remaining(next_reset_ts)
+        # Next reset timing and next crate display
+        rem_str = self.format_time_remaining(next_reset_ts, now_dt=server_now_dt)
+        if rem_str == "доступен сейчас! ⚡":
+            next_crate_line = f"⏳ <b>До следующего кейса:</b> {rem_str}"
+        elif next_crate_display:
+            next_crate_line = f"⏳ <b>До следующего кейса (за {next_crate_display}):</b> {rem_str}"
+        else:
+            next_crate_line = f"⏳ <b>До следующего кейса:</b> {rem_str}"
 
         # Error line
         if failed_count == 0:
@@ -430,7 +544,7 @@ class TelegramNotifier:
             drop_50_line,
             f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет)",
             f"━━━━━━━━━━━━━━━━━━━",
-            f"⏳ <b>До следующего кейса:</b> {rem_str}",
+            next_crate_line,
         ]
 
         # Only list problematic accounts if any errors occurred
@@ -630,14 +744,20 @@ class TelegramNotifier:
                 for a in accounts
                 if getattr(a, "status", None) and a.status.next_reset_at
             ]
-            rem_str = self.format_time_remaining(min(next_resets) if next_resets else None)
+            earliest_reset = min(next_resets) if next_resets else None
+            rem_str = self.format_time_remaining(earliest_reset)
+            reset_suffix = ""
+            if earliest_reset and rem_str != "доступен сейчас! ⚡":
+                reset_local = self._to_local_str(earliest_reset)
+                if reset_local and reset_local != "N/A":
+                    reset_suffix = f" (в {reset_local})"
 
             msg = (
                 f"📊 <b>THUNDR СТАТУС</b>\n\n"
                 f"👥 Всего аккаунтов: <b>{total}</b>\n"
                 f"🎁 Доступно кейсов сейчас: <b>{ready}/{total}</b>\n"
                 f"⏳ На перезарядке: <b>{total - ready}/{total}</b>\n"
-                f"⏰ До ближайшего сброса: <b>{rem_str}</b>\n"
+                f"⏰ До ближайшего сброса: <b>{rem_str}</b>{reset_suffix}\n"
             )
             if ready_accs:
                 names = ", ".join(f"<code>{html.escape(a.username)}</code>" for a in ready_accs[:10])
