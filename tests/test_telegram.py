@@ -457,4 +457,78 @@ def test_telegram_status_command_includes_reset_time():
         assert "02:00:00" in status_res or "01:00:00" in status_res
 
 
+def test_telegram_mismatch_header_shows_server_time():
+    """During midnight window, header displays both local and server time to prevent confusion."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", tz_name="Europe/Berlin")
+    ctx = StateMachineContext(
+        username="u1",
+        current_state=CrateState.COOLDOWN,
+        status=DailyCrateStatus(
+            available=False,
+            last_claimed_on="2026-10-18",
+            next_reset_at="2026-10-19T00:00:00Z",
+            server_now="2026-10-18T22:23:45Z",
+        ),
+    )
+    report = notifier.format_summary_report([ctx])
+    assert "сервер: 18.10 22:23 UTC" in report
+    assert "Награда за 18.10:" in report
+
+
+def test_telegram_determine_game_cycle_advances_stale_cache():
+    """Verify that cached account with last_checked_at hours ago does not freeze time in the past."""
+    from thundr.account import AccountRecord
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", tz_name="Europe/Berlin")
+
+    # Record checked 5 hours ago
+    rec = AccountRecord(
+        username="u1",
+        last_checked_at="2026-10-18T17:00:00+00:00",
+        last_status=DailyCrateStatus(
+            available=False,
+            last_claimed_on="2026-10-18",
+            next_reset_at="2026-10-19T00:00:00Z",
+            server_now="2026-10-18T17:00:00Z",
+        ),
+    )
+
+    # If we evaluate now, server_now_dt must be advanced, not frozen at 17:00
+    cycle_info = notifier.determine_game_cycle([rec])
+    now_utc = datetime.now(timezone.utc)
+    diff_from_now = abs((cycle_info["server_now_dt"] - now_utc).total_seconds())
+    # Should be within seconds of live UTC, not 5+ hours in the past
+    assert diff_from_now < 60
+
+
+def test_telegram_dst_transition_europe_berlin():
+    """Verify DST transition: 00:00 UTC reset displays as 02:00:00 in CEST and 01:00:00 in CET."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", tz_name="Europe/Berlin")
+
+    # Summer (CEST, UTC+2)
+    summer_reset = "2026-07-15T00:00:00Z"
+    assert "02:00:00" in notifier._to_local_str(summer_reset)
+
+    # Winter (CET, UTC+1, after last Sunday of October)
+    winter_reset = "2026-11-15T00:00:00Z"
+    assert "01:00:00" in notifier._to_local_str(winter_reset)
+
+
+def test_account_is_claimed_for_cycle():
+    """Verify DailyCrateStatus.is_claimed_for_cycle works with ISO strings and next_reset_at fallback."""
+    # 1. Exact date string
+    s1 = DailyCrateStatus(available=False, last_claimed_on="2026-10-18")
+    assert s1.is_claimed_for_cycle("2026-10-18") is True
+    assert s1.is_claimed_for_cycle("2026-10-19") is False
+
+    # 2. ISO timestamp format in last_claimed_on
+    s2 = DailyCrateStatus(available=False, last_claimed_on="2026-10-18T14:30:00Z")
+    assert s2.is_claimed_for_cycle("2026-10-18") is True
+
+    # 3. None last_claimed_on, but in cooldown with next_reset_at
+    s3 = DailyCrateStatus(available=False, last_claimed_on=None, next_reset_at="2026-10-19T00:00:00Z")
+    assert s3.is_claimed_for_cycle("2026-10-18") is True
+    assert s3.is_claimed_for_cycle("2026-10-19") is False
+
+
+
 

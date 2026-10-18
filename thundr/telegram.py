@@ -192,7 +192,13 @@ class TelegramNotifier:
 
         safe_user = html.escape(ctx.username)
         now_str = datetime.now(self.tz).strftime("%Y-%m-%d %H:%M:%S %Z")
-        rem_str = self.format_time_remaining(ctx.status.next_reset_at if ctx.status else None)
+        server_now_dt = None
+        if ctx.status and getattr(ctx.status, "server_now", None):
+            try:
+                server_now_dt = datetime.fromisoformat(ctx.status.server_now.replace("Z", "+00:00"))
+            except Exception:
+                pass
+        rem_str = self.format_time_remaining(ctx.status.next_reset_at if ctx.status else None, now_dt=server_now_dt)
         reset_time = self._to_local_str(ctx.status.next_reset_at if ctx.status else None)
         last_rew_str = self._format_last_reward(ctx.last_reward_coins)
 
@@ -290,13 +296,17 @@ class TelegramNotifier:
             if isinstance(item, StateMachineContext):
                 contexts.append(item)
             else:
-                raw_user = getattr(item, "username", "")
+                raw_user = getattr(item, "username", "") or (item.get("username", "") if isinstance(item, dict) else "")
                 username = raw_user if isinstance(raw_user, str) else str(raw_user)
-                status = getattr(item, "status", None)
-                raw_bal = getattr(item, "balance", 0) or 0
+                status = getattr(item, "status", None) or getattr(item, "last_status", None)
+                if isinstance(item, dict):
+                    status = item.get("status") or item.get("last_status")
+
+                raw_bal = getattr(item, "balance", 0) if not isinstance(item, dict) else item.get("balance", 0)
+                raw_bal = raw_bal or 0
                 bal = int(raw_bal) if isinstance(raw_bal, (int, float)) else 0
 
-                raw_last_rew = getattr(item, "last_reward_coins", None)
+                raw_last_rew = getattr(item, "last_reward_coins", None) if not isinstance(item, dict) else item.get("last_reward_coins")
                 if isinstance(raw_last_rew, (int, float)):
                     last_rew = int(raw_last_rew)
                 else:
@@ -312,8 +322,10 @@ class TelegramNotifier:
                     if storage:
                         last_rew = storage.get_last_reward_for_user(username)
 
-                if status is None and getattr(item, "last_claimed_at", None):
-                    claimed_on = str(item.last_claimed_at)[:10] if item.last_claimed_at else None
+                last_claimed_at = getattr(item, "last_claimed_at", None) or (item.get("last_claimed_at") if isinstance(item, dict) else None)
+                last_checked_at = getattr(item, "last_checked_at", None) or (item.get("last_checked_at") if isinstance(item, dict) else None)
+                if status is None and last_claimed_at:
+                    claimed_on = str(last_claimed_at)[:10]
                     status = DailyCrateStatus(
                         available=False,
                         coin_balance=bal,
@@ -333,12 +345,13 @@ class TelegramNotifier:
                     coins_earned=0,
                     last_reward_coins=last_rew,
                     status=status if hasattr(status, "available") else None,
+                    last_checked_at=last_checked_at,
                 )
                 contexts.append(ctx)
         return contexts
 
     def determine_game_cycle(
-        self, contexts: Optional[List[Any]] = None
+        self, contexts: Optional[List[Any]] = None, now_dt: Optional[datetime] = None
     ) -> Dict[str, Any]:
         """Determine the active game server cycle, display date, and next crate timing.
 
@@ -350,33 +363,55 @@ class TelegramNotifier:
         active/claimed reward cycle belongs to the server's day (e.g. 18.10), while
         the upcoming crate to be unlocked at reset belongs to the new day (e.g. 19.10).
         """
-        now_local = datetime.now(self.tz)
+        now_utc = datetime.now(timezone.utc)
+        if now_dt is not None:
+            ref_dt = now_dt if now_dt.tzinfo else now_dt.replace(tzinfo=timezone.utc)
+            now_local = ref_dt.astimezone(self.tz)
+            server_now_dt = ref_dt.astimezone(timezone.utc)
+        else:
+            now_local = datetime.now(self.tz)
+            server_now_dt = None
+            if contexts:
+                for c in contexts:
+                    st = getattr(c, "status", None) or getattr(c, "last_status", None)
+                    if isinstance(c, dict):
+                        st = c.get("status") or c.get("last_status")
+                    snow = getattr(st, "server_now", None) if st else (st.get("server_now") if isinstance(st, dict) else None)
+                    if snow and isinstance(snow, str):
+                        try:
+                            parsed_snow = datetime.fromisoformat(snow.replace("Z", "+00:00"))
+                            last_chk = getattr(c, "last_checked_at", None)
+                            if isinstance(c, dict) and not last_chk:
+                                last_chk = c.get("last_checked_at")
+                            if last_chk and isinstance(last_chk, str):
+                                try:
+                                    chk_dt = datetime.fromisoformat(last_chk.replace("Z", "+00:00"))
+                                    elapsed = now_utc - chk_dt
+                                    if elapsed.total_seconds() > 0:
+                                        server_now_dt = parsed_snow + elapsed
+                                        break
+                                except Exception:
+                                    pass
+                            server_now_dt = parsed_snow
+                            break
+                        except Exception:
+                            pass
+
+            if server_now_dt is None:
+                server_now_dt = now_utc
+
         local_date_str = now_local.strftime("%Y-%m-%d")
         local_display = now_local.strftime("%d.%m")
-
-        # 1. Server time: prefer server_now from crate status if available, else current UTC
-        server_now_dt: Optional[datetime] = None
-        if contexts:
-            for c in contexts:
-                st = getattr(c, "status", None)
-                snow = getattr(st, "server_now", None) if st else None
-                if snow and isinstance(snow, str):
-                    try:
-                        server_now_dt = datetime.fromisoformat(snow.replace("Z", "+00:00"))
-                        break
-                    except Exception:
-                        pass
-
-        if server_now_dt is None:
-            server_now_dt = datetime.now(timezone.utc)
 
         # 2. Extract reset timestamps from contexts
         future_resets = []
         all_resets = []
         if contexts:
             for c in contexts:
-                st = getattr(c, "status", None)
-                nreset = getattr(st, "next_reset_at", None) if st else None
+                st = getattr(c, "status", None) or getattr(c, "last_status", None)
+                if isinstance(c, dict):
+                    st = c.get("status") or c.get("last_status")
+                nreset = getattr(st, "next_reset_at", None) if st else (st.get("next_reset_at") if isinstance(st, dict) else None)
                 if nreset and isinstance(nreset, str):
                     try:
                         rdt = datetime.fromisoformat(nreset.replace("Z", "+00:00"))
@@ -432,10 +467,22 @@ class TelegramNotifier:
             "local_display": local_display,
         }
 
-    def format_summary_report(self, items: List[Any]) -> str:
+    def format_summary_report(self, items: List[Any], now_dt: Optional[datetime] = None) -> str:
         """Format the full executive summary matching Screenshot 2."""
         contexts = self._normalize_to_contexts(items)
-        now_str = datetime.now(self.tz).strftime("%d.%m.%Y %H:%M %Z")
+        cycle_info = self.determine_game_cycle(contexts, now_dt=now_dt)
+        cycle_date_str = cycle_info["cycle_date_str"]
+        cycle_display = cycle_info["cycle_display"]
+        next_crate_display = cycle_info["next_crate_display"]
+        next_reset_ts = cycle_info["next_reset_iso"]
+        server_now_dt = cycle_info["server_now_dt"]
+
+        now_local = now_dt.astimezone(self.tz) if (now_dt and now_dt.tzinfo) else (now_dt if now_dt else datetime.now(self.tz))
+        if cycle_info.get("is_mismatch"):
+            now_str = f"{now_local.strftime('%d.%m.%Y %H:%M %Z')} (сервер: {server_now_dt.strftime('%d.%m %H:%M UTC')})"
+        else:
+            now_str = now_local.strftime("%d.%m.%Y %H:%M %Z")
+
         total_accounts = len(contexts)
         claimed_count = sum(1 for c in contexts if c.current_state == CrateState.CLAIMED)
         cooldown_count = sum(1 for c in contexts if c.current_state == CrateState.COOLDOWN)
@@ -453,14 +500,6 @@ class TelegramNotifier:
         total_balance = sum(balances)
         avg_balance = (total_balance / total_accounts) if total_accounts > 0 else 0.0
 
-        # Date and claim status aligned with game server cycle / reset time
-        cycle_info = self.determine_game_cycle(contexts)
-        cycle_date_str = cycle_info["cycle_date_str"]
-        cycle_display = cycle_info["cycle_display"]
-        next_crate_display = cycle_info["next_crate_display"]
-        next_reset_ts = cycle_info["next_reset_iso"]
-        server_now_dt = cycle_info["server_now_dt"]
-
         claimed_today_count = 0
         for c in contexts:
             last_claimed = getattr(c.status, "last_claimed_on", None) if c.status else None
@@ -469,6 +508,8 @@ class TelegramNotifier:
                     last_claimed = str(c.last_claimed_at)[:10]
                 except Exception:
                     pass
+            if last_claimed:
+                last_claimed = str(last_claimed)[:10]
 
             if c.current_state == CrateState.CLAIMED:
                 claimed_today_count += 1
@@ -738,6 +779,9 @@ class TelegramNotifier:
             ready = len(ready_accs)
             total = len(accounts)
 
+            cycle_info = self.determine_game_cycle(accounts)
+            server_now_dt = cycle_info["server_now_dt"]
+
             # Earliest reset
             next_resets = [
                 a.status.next_reset_at
@@ -745,7 +789,7 @@ class TelegramNotifier:
                 if getattr(a, "status", None) and a.status.next_reset_at
             ]
             earliest_reset = min(next_resets) if next_resets else None
-            rem_str = self.format_time_remaining(earliest_reset)
+            rem_str = self.format_time_remaining(earliest_reset, now_dt=server_now_dt)
             reset_suffix = ""
             if earliest_reset and rem_str != "доступен сейчас! ⚡":
                 reset_local = self._to_local_str(earliest_reset)

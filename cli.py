@@ -336,9 +336,14 @@ def check_command(account_arg: Optional[str], account_opt: Optional[str]) -> Non
     console.print(table)
     notifier = TelegramNotifier()
     cycle_info = notifier.determine_game_cycle(accounts)
+    crate_rem = notifier.format_time_remaining(cycle_info["next_reset_iso"], now_dt=cycle_info["server_now_dt"])
+    if crate_rem == "доступен сейчас! ⚡":
+        crate_info_str = f"Crate ({cycle_info['cycle_display']}): [bold green]{crate_rem}[/bold green]"
+    else:
+        crate_info_str = f"Next Crate ({cycle_info['next_crate_display']}): {crate_rem}"
+
     console.print(
-        f"\n[dim]Server Game Day: [bold]{cycle_info['cycle_display']}[/bold] | "
-        f"Next Crate ({cycle_info['next_crate_display']}): {notifier.format_time_remaining(cycle_info['next_reset_iso'], now_dt=cycle_info['server_now_dt'])}[/dim]"
+        f"\n[dim]Server Game Day: [bold]{cycle_info['cycle_display']}[/bold] | {crate_info_str}[/dim]"
     )
 
 

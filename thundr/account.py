@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -106,7 +106,15 @@ class DailyCrateStatus:
 
     def is_claimed_for_cycle(self, cycle_date: str) -> bool:
         """Check if reward was claimed for a specific UTC cycle date (YYYY-MM-DD)."""
-        return bool(self.last_claimed_on and self.last_claimed_on == cycle_date)
+        if self.last_claimed_on:
+            return str(self.last_claimed_on)[:10] == cycle_date
+        if not self.available and self.next_reset_at:
+            try:
+                rdt = datetime.fromisoformat(self.next_reset_at.replace("Z", "+00:00"))
+                return (rdt - timedelta(days=1)).strftime("%Y-%m-%d") == cycle_date
+            except Exception:
+                pass
+        return False
 
 
 @dataclass

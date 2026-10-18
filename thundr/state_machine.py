@@ -69,6 +69,7 @@ class StateMachineContext:
     error_message: Optional[str] = None
     started_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     finished_at: Optional[str] = None
+    last_checked_at: Optional[str] = None
 
     @property
     def is_success(self) -> bool:
