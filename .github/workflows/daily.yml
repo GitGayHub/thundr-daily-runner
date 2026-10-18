@@ -7,10 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Action to execute: run (claim rewards), goal (progress report), boost (boost store check)'
+        description: 'Action to execute: run (claim rewards), summary (executive report), goal (progress report), boost (boost store check)'
         type: choice
         options:
           - run
+          - summary
           - goal
           - boost
         default: run
@@ -20,20 +21,20 @@ on:
         required: false
         default: false
       notify_mode:
-        description: 'Telegram notification mode (all, rewards_only, errors_only, summary, digest_2x)'
+        description: 'Telegram notification mode (summary, all, rewards_only, errors_only, digest_2x)'
         type: choice
         options:
+          - summary
           - all
           - rewards_only
           - errors_only
-          - summary
           - digest_2x
-        default: digest_2x
+        default: summary
       force_notify:
         description: 'Force Telegram summary notification even if throttled?'
         type: boolean
         required: false
-        default: false
+        default: true
 
 concurrency:
   group: thundr-daily-${{ github.ref }}
@@ -88,7 +89,7 @@ jobs:
           THUNDR_HASHED_TOKEN: ${{ secrets.THUNDR_HASHED_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_MODE: ${{ inputs.notify_mode || secrets.TELEGRAM_MODE || 'digest_2x' }}
+          TELEGRAM_MODE: ${{ inputs.notify_mode || secrets.TELEGRAM_MODE || 'summary' }}
           APP_TIMEZONE: Europe/Berlin
           HEADLESS_BROWSER: 'true'
         run: |
@@ -98,13 +99,15 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
-          FORCE_FLAG=""
-          if [ "${{ inputs.force_notify }}" = "true" ]; then
-            FORCE_FLAG="--force-notify"
+          FORCE_FLAG="--force-notify"
+          if [ "${{ inputs.force_notify }}" = "false" ]; then
+            FORCE_FLAG=""
           fi
 
           if [ "$ACTION" = "goal" ]; then
             python cli.py goal
+          elif [ "$ACTION" = "summary" ]; then
+            python cli.py summary
           elif [ "$ACTION" = "boost" ]; then
             python cli.py boost --type mini $DRY_RUN_FLAG
           else

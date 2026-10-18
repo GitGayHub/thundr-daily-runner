@@ -271,3 +271,49 @@ def test_cli_run_account_exception_isolation(mock_sm_cls, tmp_path, monkeypatch)
     assert "CLAIMED" in res.output
 
 
+def test_cli_summary(tmp_path, monkeypatch):
+    """Test cli summary command prints Screenshot 2 report."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "alice", "-p", "pwd"])
+
+    res = runner.invoke(cli, ["summary", "--no-telegram"])
+    assert res.exit_code == 0
+    assert "THUNDR REPORT — СВОДКА" in res.output
+    assert "Всего аккаунтов: <b>1</b>" in res.output
+
+
+@patch("cli.TelegramNotifier")
+def test_cli_goal_and_boost_send_executive_summary(mock_notifier_cls, tmp_path, monkeypatch):
+    """Verify that cli goal and boost send Screenshot 2 executive summary to Telegram."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "alice", "-p", "pwd"])
+
+    mock_notifier = MagicMock()
+    mock_notifier.is_configured = True
+    mock_notifier.format_summary_report.return_value = "📊 THUNDR REPORT — СВОДКА"
+    mock_notifier_cls.return_value = mock_notifier
+
+    # Test goal command sends summary
+    res_goal = runner.invoke(cli, ["goal"])
+    assert res_goal.exit_code == 0
+    assert mock_notifier.send_raw_message.called
+    mock_notifier.send_raw_message.assert_called_with("📊 THUNDR REPORT — СВОДКА")
+
+    mock_notifier.reset_mock()
+    # Test boost command sends summary
+    res_boost = runner.invoke(cli, ["boost"])
+    assert res_boost.exit_code == 0
+    assert mock_notifier.send_raw_message.called
+    mock_notifier.send_raw_message.assert_called_with("📊 THUNDR REPORT — СВОДКА")
+
+

@@ -267,15 +267,78 @@ class TelegramNotifier:
                             )
                             return False
 
+        full_message = self.format_summary_report(contexts)
+        ok = self.send_raw_message(full_message)
+        if ok:
+            import time
+            self._save_last_summary_ts(time.time())
+        return ok
+
+    def _normalize_to_contexts(self, items: List[Any]) -> List[StateMachineContext]:
+        """Convert arbitrary AccountRecord or StateMachineContext objects into StateMachineContext."""
+        contexts: List[StateMachineContext] = []
+        storage = None
+        for item in items:
+            if isinstance(item, StateMachineContext):
+                contexts.append(item)
+            else:
+                raw_user = getattr(item, "username", "")
+                username = raw_user if isinstance(raw_user, str) else str(raw_user)
+                status = getattr(item, "status", None)
+                raw_bal = getattr(item, "balance", 0) or 0
+                bal = int(raw_bal) if isinstance(raw_bal, (int, float)) else 0
+
+                raw_last_rew = getattr(item, "last_reward_coins", None)
+                if isinstance(raw_last_rew, (int, float)):
+                    last_rew = int(raw_last_rew)
+                else:
+                    last_rew = None
+
+                if last_rew is None:
+                    if storage is None:
+                        try:
+                            from thundr.storage import StorageManager
+                            storage = StorageManager()
+                        except Exception:
+                            storage = False
+                    if storage:
+                        last_rew = storage.get_last_reward_for_user(username)
+
+                if status and getattr(status, "available", False):
+                    state = CrateState.READY
+                else:
+                    state = CrateState.COOLDOWN
+
+                ctx = StateMachineContext(
+                    username=username,
+                    current_state=state,
+                    initial_balance=bal,
+                    final_balance=bal,
+                    coins_earned=0,
+                    last_reward_coins=last_rew,
+                    status=status if hasattr(status, "available") else None,
+                )
+                contexts.append(ctx)
+        return contexts
+
+    def format_summary_report(self, items: List[Any]) -> str:
+        """Format the full executive summary matching Screenshot 2."""
+        contexts = self._normalize_to_contexts(items)
         now_str = datetime.now(self.tz).strftime("%d.%m.%Y %H:%M %Z")
         total_accounts = len(contexts)
         claimed_count = sum(1 for c in contexts if c.current_state == CrateState.CLAIMED)
         cooldown_count = sum(1 for c in contexts if c.current_state == CrateState.COOLDOWN)
         failed_count = sum(1 for c in contexts if c.current_state in (CrateState.FAILED, CrateState.UNCERTAIN))
-        total_coins_earned = sum(c.coins_earned for c in contexts)
+        total_coins_earned = sum(
+            int(c.coins_earned) for c in contexts if isinstance(c.coins_earned, (int, float))
+        )
 
         # Calculate balances & statistics
-        balances = [(c.final_balance or c.initial_balance or 0) for c in contexts]
+        balances = []
+        for c in contexts:
+            val = c.final_balance or c.initial_balance or 0
+            balances.append(int(val) if isinstance(val, (int, float)) else 0)
+
         total_balance = sum(balances)
         avg_balance = (total_balance / total_accounts) if total_accounts > 0 else 0.0
 
@@ -287,9 +350,9 @@ class TelegramNotifier:
         for c in contexts:
             if c.current_state == CrateState.CLAIMED:
                 claimed_today_count += 1
-            elif c.status and c.status.last_claimed_on == today_date_str:
+            elif c.status and getattr(c.status, "last_claimed_on", None) == today_date_str:
                 claimed_today_count += 1
-            elif c.current_state == CrateState.COOLDOWN and c.status and not c.status.available:
+            elif c.current_state == CrateState.COOLDOWN and c.status and not getattr(c.status, "available", False):
                 claimed_today_count += 1
 
         if claimed_today_count == total_accounts:
@@ -302,24 +365,32 @@ class TelegramNotifier:
         # Accounts that dropped 50+ coins from the crate
         dropped_50_plus = []
         for c in contexts:
-            earned = c.coins_earned if c.coins_earned > 0 else (c.last_reward_coins or 0)
+            raw_earned = c.coins_earned if (isinstance(c.coins_earned, (int, float)) and c.coins_earned > 0) else (c.last_reward_coins or 0)
+            earned = int(raw_earned) if isinstance(raw_earned, (int, float)) else 0
             if earned >= 50:
                 dropped_50_plus.append((c.username, earned))
 
         if dropped_50_plus:
-            dropped_details = ", ".join(f"<code>{html.escape(u)}</code> (+{amt})" for u, amt in dropped_50_plus)
+            dropped_details = ", ".join(f"<code>{html.escape(str(u))}</code> (+{amt})" for u, amt in dropped_50_plus)
             drop_50_line = f"🎁 <b>Сегодня выпало 50+:</b> {len(dropped_50_plus)} ({dropped_details})"
         else:
             drop_50_line = "🎁 <b>Сегодня выпало 50+:</b> 0"
 
-
         # Top account by balance
-        best_ctx = max(contexts, key=lambda c: (c.final_balance or c.initial_balance or 0)) if contexts else None
-        best_user = best_ctx.username if best_ctx else "N/A"
-        best_bal = (best_ctx.final_balance or best_ctx.initial_balance or 0) if best_ctx else 0
+        best_ctx = max(
+            contexts,
+            key=lambda c: (int(c.final_balance or c.initial_balance or 0) if isinstance(c.final_balance or c.initial_balance or 0, (int, float)) else 0)
+        ) if contexts else None
+        best_user = str(best_ctx.username) if best_ctx else "N/A"
+        raw_bal = (best_ctx.final_balance or best_ctx.initial_balance or 0) if best_ctx else 0
+        best_bal = int(raw_bal) if isinstance(raw_bal, (int, float)) else 0
 
         # Next reset timing
-        next_resets = [c.status.next_reset_at for c in contexts if c.status and c.status.next_reset_at]
+        next_resets = [
+            c.status.next_reset_at
+            for c in contexts
+            if c.status and getattr(c.status, "next_reset_at", None) and isinstance(c.status.next_reset_at, str)
+        ]
         next_reset_ts = min(next_resets) if next_resets else None
         rem_str = self.format_time_remaining(next_reset_ts)
 
@@ -329,7 +400,7 @@ class TelegramNotifier:
         else:
             error_line = f"❌ <b>Ошибки:</b> {failed_count} акк."
 
-        # Assemble compact message
+        # Assemble compact message matching Screenshot 2 exactly
         msg_parts = [
             f"📊 <b>THUNDR REPORT — СВОДКА</b>",
             f"<i>{now_str}</i>\n",
@@ -340,7 +411,6 @@ class TelegramNotifier:
             f"💰 <b>Общий баланс:</b> {total_balance} монет" + (f" (+{total_coins_earned})" if total_coins_earned > 0 else ""),
             f"📊 <b>В среднем на 1 аккаунт:</b> {avg_balance:.1f} монет",
             drop_50_line,
-            f"🎯 <b>Цель (50+ баланс):</b> {sum(1 for b in balances if b >= 50)}/{total_accounts} акк." + (f" | ⚡ Буст (100+): {sum(1 for b in balances if b >= 100)}" if any(b >= 100 for b in balances) else ""),
             f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет)",
             f"━━━━━━━━━━━━━━━━━━━",
             f"⏳ <b>До следующего кейса:</b> {rem_str}",
@@ -352,15 +422,9 @@ class TelegramNotifier:
             for c in contexts:
                 if c.current_state in (CrateState.FAILED, CrateState.UNCERTAIN):
                     err_msg = html.escape(c.error_message or "ошибка")[:40]
-                    msg_parts.append(f"• <code>{html.escape(c.username)}</code>: {err_msg}")
+                    msg_parts.append(f"• <code>{html.escape(str(c.username))}</code>: {err_msg}")
 
-        full_message = "\n".join(msg_parts)
-
-        ok = self.send_raw_message(full_message)
-        if ok:
-            import time
-            self._save_last_summary_ts(time.time())
-        return ok
+        return "\n".join(msg_parts)
 
     def get_updates(self, offset: Optional[int] = None, timeout: int = 5) -> List[Dict[str, Any]]:
         """Fetch incoming Telegram updates via long polling."""
@@ -395,24 +459,25 @@ class TelegramNotifier:
 
         base_cmd = parts[0].lower()
 
-        if base_cmd.startswith("/goal"):
+        if (
+            base_cmd.startswith("/goal")
+            or base_cmd.startswith("/summary")
+            or base_cmd.startswith("/report")
+            or base_cmd in ("/svodka", "/сводка")
+        ):
             if not accounts:
-                return "🎯 <b>Thundr Goal</b>\n\nНет данных об аккаунтах для расчета цели."
+                return "📊 <b>THUNDR REPORT — СВОДКА</b>\n\nНет данных об аккаунтах."
 
-            # Check if specific account or custom target threshold was passed
+            # Check if specific account was passed: /goal <username>
             arg = parts[1].strip() if len(parts) > 1 else None
-            custom_target: Optional[int] = None
             specific_acc = None
 
-            if arg:
-                if arg.isdigit():
-                    custom_target = int(arg)
-                else:
-                    target_name = arg.lower()
-                    for a in accounts:
-                        if getattr(a, "username", "").lower() == target_name:
-                            specific_acc = a
-                            break
+            if arg and not arg.isdigit():
+                target_name = arg.lower()
+                for a in accounts:
+                    if getattr(a, "username", "").lower() == target_name:
+                        specific_acc = a
+                        break
 
             if specific_acc:
                 bal = getattr(specific_acc, "balance", 0) or 0
@@ -429,36 +494,8 @@ class TelegramNotifier:
                     f"🔥 Стрик: <b>{getattr(getattr(specific_acc, 'status', None), 'streak', 0)}</b> дн."
                 )
 
-            # Pool summary
-            target = custom_target or 50
-            balances = [getattr(a, "balance", 0) or 0 for a in accounts]
-            total_bal = sum(balances)
-            count_target = sum(1 for b in balances if b >= target)
-            count_100 = sum(1 for b in balances if b >= 100)
-            total = len(accounts)
-            pct = (count_target / total * 100) if total > 0 else 0
-
-            # Find reached accounts
-            reached_names = [
-                f"{a.username} ({getattr(a, 'balance', 0)})"
-                for a in accounts
-                if (getattr(a, "balance", 0) or 0) >= target
-            ]
-            reached_str = ", ".join(f"<code>{html.escape(n)}</code>" for n in reached_names[:10])
-            if len(reached_names) > 10:
-                reached_str += f" и ещё {len(reached_names) - 10}..."
-
-            msg_parts = [
-                f"🎯 <b>THUNDR GOAL REPORT — ЦЕЛЬ {target} МОНЕТ</b>\n",
-                f"👥 Всего аккаунтов: <b>{total}</b>",
-                f"💰 Общий баланс: <b>{total_bal}</b> монет (в среднем {total_bal / total:.1f}/акк.)",
-                f"✅ Достигли цели ({target}+): <b>{count_target}/{total}</b> ({pct:.1f}%)",
-                f"⚡ Достигли 100+ (Mini Boost): <b>{count_100}/{total}</b>",
-            ]
-            if reached_names:
-                msg_parts.append(f"\n🏆 <b>Достигли цели:</b>\n{reached_str}")
-
-            return "\n".join(msg_parts)
+            # Return the full executive summary from Screenshot 2!
+            return self.format_summary_report(accounts)
 
         elif base_cmd.startswith("/boost"):
             cost_map = {"mini": 100, "small": 450, "normal": 1000, "super": 2100}
@@ -583,6 +620,7 @@ class TelegramNotifier:
             return (
                 f"⚡ <b>Thundr Daily Rewards Bot</b>\n\n"
                 f"Доступные команды:\n"
+                f"• /summary — Полная сводка по аккаунтам\n"
                 f"• /goal — Прогресс достижения цели (50+ монет)\n"
                 f"• /goal &lt;логин&gt; — Прогресс конкретного аккаунта\n"
                 f"• /boost — Магазин бустов и готовые аккаунты\n"

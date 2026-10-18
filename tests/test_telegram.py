@@ -175,11 +175,17 @@ def test_telegram_handle_commands():
     acc.status = MagicMock()
     acc.status.available = True
 
-    # Test /goal command
+    # Test /goal command returns executive summary
     goal_res = notifier.handle_command("/goal", accounts=[acc])
     assert goal_res is not None
-    assert "GOAL REPORT" in goal_res
+    assert "THUNDR REPORT" in goal_res
+    assert "СВОДКА" in goal_res
     assert "120" in goal_res
+
+    # Test /summary command returns executive summary
+    summary_res = notifier.handle_command("/summary", accounts=[acc])
+    assert summary_res is not None
+    assert "THUNDR REPORT — СВОДКА" in summary_res
 
     # Test /boost command
     boost_res = notifier.handle_command("/boost", accounts=[acc])
@@ -219,9 +225,10 @@ def test_telegram_handle_commands_extended(tmp_path, monkeypatch):
 
     # 2. /goal for unknown account
     res_goal_unk = notifier.handle_command("/goal unknown_user", accounts=[acc])
-    # Pool summary returned since account not found
+    # Pool executive summary returned since account not found
     assert res_goal_unk is not None
-    assert "GOAL REPORT" in res_goal_unk
+    assert "THUNDR REPORT" in res_goal_unk
+    assert "СВОДКА" in res_goal_unk
 
     # 3. /boost for specific account
     res_boost_user = notifier.handle_command("/boost gamasek33", accounts=[acc])

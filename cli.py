@@ -183,7 +183,7 @@ def _execute_rewards(
                     telegram_notifier.notify_single_run(err_ctx, force=(len(accounts) == 1))
 
         # Send batch summary to Telegram
-        if telegram_notifier and (len(results) > 1 or telegram_notifier.mode in ("summary", "digest_2x", "smart_2x")):
+        if telegram_notifier and results:
             telegram_notifier.notify_summary(results, force=force_notify)
     except Exception as exc:
         logger.exception(f"Fatal error during rewards execution: {exc}")
@@ -514,14 +514,25 @@ def goal_command(target: int, account_opt: Optional[str], no_telegram: bool) -> 
     if not no_telegram:
         notifier = TelegramNotifier()
         if notifier.is_configured:
-            msg = (
-                f"🎯 <b>THUNDR GOAL REPORT — ЦЕЛЬ {target} МОНЕТ</b>\n\n"
-                f"👥 Всего аккаунтов: <b>{len(accounts)}</b>\n"
-                f"✅ Достигли цели ({target}+): <b>{reached_count}/{len(accounts)}</b> ({pct_total:.1f}%)\n"
-                f"💰 Общий баланс пула: <b>{total_balance}</b> монет\n"
-                f"📊 В среднем на аккаунт: <b>{total_balance / len(accounts):.1f}</b> монет"
-            )
+            msg = notifier.format_summary_report(accounts)
             notifier.send_raw_message(msg)
+
+
+@cli.command("summary")
+@click.option("--no-telegram", is_flag=True, help="Do not send summary report to Telegram.")
+def summary_command(no_telegram: bool) -> None:
+    """Display and send executive summary report for all accounts."""
+    account_mgr = AccountManager()
+    accounts = account_mgr.list_accounts(enabled_only=True)
+    if not accounts:
+        console.print("[yellow]⚠️ No accounts configured.[/yellow]")
+        return
+    notifier = TelegramNotifier()
+    summary_text = notifier.format_summary_report(accounts)
+    console.print(summary_text)
+    if not no_telegram and notifier.is_configured:
+        notifier.send_raw_message(summary_text)
+        console.print("[bold green]✔ Executive summary report sent to Telegram![/bold green]")
 
 
 @cli.command("boost")
@@ -535,11 +546,13 @@ def goal_command(target: int, account_opt: Optional[str], no_telegram: bool) -> 
     help="Boost type to purchase (mini: 100 coins, small: 450, normal: 1000, super: 2100).",
 )
 @click.option("--dry-run", is_flag=True, help="Simulate without spending coins.")
+@click.option("--no-telegram", is_flag=True, help="Do not send report to Telegram.")
 def boost_command(
     account_opt: Optional[str],
     all_accounts: bool,
     boost_type: str,
     dry_run: bool,
+    no_telegram: bool,
 ) -> None:
     """Check or spend coins on Thundr boosts (mini, small, normal, super)."""
     cost_map = {"mini": 100, "small": 450, "normal": 1000, "super": 2100}
@@ -560,6 +573,12 @@ def boost_command(
     if not accounts:
         console.print("[yellow]⚠️ No accounts found.[/yellow]")
         return
+
+    if not no_telegram:
+        notifier = TelegramNotifier()
+        if notifier.is_configured:
+            msg = notifier.format_summary_report(accounts)
+            notifier.send_raw_message(msg)
 
     eligible = [a for a in accounts if (a.balance or 0) >= cost]
     console.print(
