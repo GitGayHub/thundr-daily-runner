@@ -265,3 +265,71 @@ def test_telegram_handle_commands_extended(tmp_path, monkeypatch):
     assert notifier.get_last_update_id() == 999
 
 
+def test_telegram_summary_strict_claim_counting():
+    """Verify that old claims or unreset accounts are NOT falsely counted as claimed today."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+
+    # Account with old claim date (e.g. 3 days ago)
+    c_old = StateMachineContext(
+        username="old_acc",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=10,
+        status=DailyCrateStatus(available=False, last_claimed_on="2026-10-15")
+    )
+    # Account with no status/reset info
+    c_none = StateMachineContext(
+        username="none_acc",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=10,
+        status=DailyCrateStatus(available=False, last_claimed_on=None, next_reset_at=None)
+    )
+    # Account claimed today
+    c_today = StateMachineContext(
+        username="today_acc",
+        current_state=CrateState.CLAIMED,
+        coins_earned=25,
+        final_balance=35,
+        status=DailyCrateStatus(available=False, last_claimed_on="2026-10-18")
+    )
+
+    report = notifier.format_summary_report([c_old, c_none, c_today])
+    # Total accounts: 3. Only 1 claimed today!
+    assert "Забрана частично (1/3)" in report
+    assert "3/3" not in report
+
+
+def test_telegram_help_and_start_environment_label(monkeypatch):
+    """Verify that /help and /start include honest environment label."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    help_gh = notifier.handle_command("/help")
+    assert "🌐 Среда: GitHub Actions" in help_gh
+
+    start_gh = notifier.handle_command("/start")
+    assert "🌐 Среда: GitHub Actions" in start_gh
+
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    help_local = notifier.handle_command("/help")
+    assert "💻 Среда: Local PC" in help_local
+
+
+def test_telegram_boost_buy_updates_balance():
+    """Verify that /boost buy decrements coin_balance on the account object."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+    acc = MagicMock()
+    acc.username = "gamasek33"
+    acc.balance = 150
+    acc.last_status = MagicMock()
+    acc.last_status.coin_balance = 150
+
+    mock_client = MagicMock()
+    mock_client.spend_boost.return_value = {"message": "Success"}
+
+    res = notifier.handle_command("/boost buy gamasek33 mini", accounts=[acc], client=mock_client)
+    assert res is not None
+    assert "успешно активирован" in res
+    assert acc.last_status.coin_balance == 50  # 150 - 100
+
+
+

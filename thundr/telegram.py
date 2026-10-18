@@ -362,7 +362,7 @@ class TelegramNotifier:
                 claimed_today_count += 1
             elif last_claimed and last_claimed in (today_date_str, today_utc_str):
                 claimed_today_count += 1
-            elif c.current_state == CrateState.COOLDOWN and c.status and not getattr(c.status, "available", False):
+            elif last_claimed is None and c.current_state == CrateState.COOLDOWN and c.status and not getattr(c.status, "available", False):
                 next_reset = getattr(c.status, "next_reset_at", None)
                 if next_reset:
                     try:
@@ -370,9 +370,7 @@ class TelegramNotifier:
                         if reset_dt > datetime.now(timezone.utc):
                             claimed_today_count += 1
                     except Exception:
-                        claimed_today_count += 1
-                else:
-                    claimed_today_count += 1
+                        pass
 
         if claimed_today_count == total_accounts:
             date_claim_line = f"📅 <b>Награда за {today_display}:</b> ✅ Забрана со всех ({total_accounts}/{total_accounts})"
@@ -585,6 +583,10 @@ class TelegramNotifier:
 
                 try:
                     res = client.spend_boost(matched_acc, boost=boost_type)
+                    if getattr(matched_acc, "last_status", None) and hasattr(matched_acc.last_status, "coin_balance"):
+                        cur_bal = getattr(matched_acc.last_status, "coin_balance", 0)
+                        if isinstance(cur_bal, (int, float)):
+                            matched_acc.last_status.coin_balance = max(0, int(cur_bal) - cost)
                     return (
                         f"✅ <b>Буст {boost_type.upper()} успешно активирован!</b>\n\n"
                         f"👤 Аккаунт: <code>{html.escape(matched_acc.username)}</code>\n"
@@ -655,7 +657,8 @@ class TelegramNotifier:
                 f"• /status — Статус кейсов и таймер кулдауна\n"
                 f"• /claim — Моментальный сбор наград для всех аккаунтов\n"
                 f"• /claim &lt;логин&gt; — Сбор наград для конкретного аккаунта\n"
-                f"• /help — Список команд"
+                f"• /help — Список команд\n\n"
+                f"{self.get_execution_environment_label()}"
             )
         return None
 

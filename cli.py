@@ -100,6 +100,7 @@ def _process_pending_telegram_updates(
             reply = notifier.handle_command(text, accounts=accounts, client=client)
             if reply:
                 notifier.send_raw_message(reply)
+                account_mgr.save()
     except Exception as e:
         logger.debug(f"Error checking pending Telegram updates: {e}")
 
@@ -611,6 +612,11 @@ def boost_command(
             else:
                 try:
                     res = client.spend_boost(acc, boost=boost_type)
+                    if getattr(acc, "last_status", None) and hasattr(acc.last_status, "coin_balance"):
+                        cur_bal = getattr(acc.last_status, "coin_balance", 0)
+                        if isinstance(cur_bal, (int, float)):
+                            acc.last_status.coin_balance = max(0, int(cur_bal) - cost)
+                            account_mgr.save()
                     console.print(
                         f"[bold green]✔ Boost purchased for '{acc.username}'![/bold green] Response: {res}"
                     )
@@ -635,6 +641,11 @@ def boost_command(
         console.print(f"[yellow]Purchasing {boost_type} boost for '{acc.username}'...[/yellow]")
         try:
             res = client.spend_boost(acc, boost=boost_type)
+            if getattr(acc, "last_status", None) and hasattr(acc.last_status, "coin_balance"):
+                cur_bal = getattr(acc.last_status, "coin_balance", 0)
+                if isinstance(cur_bal, (int, float)):
+                    acc.last_status.coin_balance = max(0, int(cur_bal) - cost)
+                    account_mgr.save()
             console.print(
                 f"[bold green]✔ Boost purchased successfully for '{acc.username}'![/bold green] Response: {res}"
             )

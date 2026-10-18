@@ -163,3 +163,85 @@ def test_account_config_and_state_aliases():
     assert state.available is True
     assert state.coin_balance == 100
 
+
+def test_account_manager_merge_does_not_overwrite_with_stale_secret(monkeypatch, tmp_path):
+    accounts_file = tmp_path / "accounts.json"
+    disk_data = [
+        {
+            "username": "gamasek1",
+            "password": "pwd",
+            "last_status": {
+                "available": False,
+                "coin_balance": 35,
+                "last_claimed_on": "2026-10-18",
+                "server_now": "2026-10-18T17:41:00Z",
+            },
+        }
+    ]
+    with open(accounts_file, "w", encoding="utf-8") as f:
+        json.dump(disk_data, f)
+
+    # Secret has older timestamp from earlier in the day
+    stale_secret = json.dumps([
+        {
+            "username": "gamasek1",
+            "password": "pwd",
+            "last_status": {
+                "available": True,
+                "coin_balance": 10,
+                "last_claimed_on": "2026-10-18",
+                "server_now": "2026-10-18T12:00:00Z",
+            },
+        }
+    ])
+    monkeypatch.setenv("THUNDR_ACCOUNTS_JSON", stale_secret)
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+
+    mgr = AccountManager(filepath=accounts_file)
+    acc = mgr.get_account("gamasek1")
+    assert acc is not None
+    # Must preserve disk cache balance of 35, NOT downgrade to 10
+    assert acc.last_status.coin_balance == 35
+    assert acc.last_status.server_now == "2026-10-18T17:41:00Z"
+
+
+def test_account_manager_merge_updates_when_secret_is_strictly_newer(monkeypatch, tmp_path):
+    accounts_file = tmp_path / "accounts.json"
+    disk_data = [
+        {
+            "username": "gamasek1",
+            "password": "pwd",
+            "last_status": {
+                "available": False,
+                "coin_balance": 35,
+                "last_claimed_on": "2026-10-18",
+                "server_now": "2026-10-18T17:41:00Z",
+            },
+        }
+    ]
+    with open(accounts_file, "w", encoding="utf-8") as f:
+        json.dump(disk_data, f)
+
+    # Secret has strictly newer timestamp
+    newer_secret = json.dumps([
+        {
+            "username": "gamasek1",
+            "password": "pwd",
+            "last_status": {
+                "available": False,
+                "coin_balance": 60,
+                "last_claimed_on": "2026-10-18",
+                "server_now": "2026-10-18T19:00:00Z",
+            },
+        }
+    ])
+    monkeypatch.setenv("THUNDR_ACCOUNTS_JSON", newer_secret)
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+
+    mgr = AccountManager(filepath=accounts_file)
+    acc = mgr.get_account("gamasek1")
+    assert acc is not None
+    # Must update to newer balance of 60
+    assert acc.last_status.coin_balance == 60
+    assert acc.last_status.server_now == "2026-10-18T19:00:00Z"
+
