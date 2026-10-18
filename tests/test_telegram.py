@@ -115,6 +115,17 @@ def test_telegram_summary_report():
         assert "70 монет" in text  # total balance 50 + 20
         assert "35.0 монет" in text  # average balance 70 / 2
         assert "Сегодня выпало 50+:" in text
+        assert "Среда:" in text
+
+
+def test_telegram_environment_label(monkeypatch):
+    # Local environment
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert TelegramNotifier.get_execution_environment_label() == "💻 Среда: Local PC"
+
+    # GitHub Actions environment
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert TelegramNotifier.get_execution_environment_label() == "🌐 Среда: GitHub Actions"
 
 
 

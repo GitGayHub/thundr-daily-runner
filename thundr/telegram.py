@@ -166,6 +166,13 @@ class TelegramNotifier:
             logger.error(f"Telegram network error: {e}")
             return False
 
+    @staticmethod
+    def get_execution_environment_label() -> str:
+        """Return honest environment / execution method label."""
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            return "🌐 Среда: GitHub Actions"
+        return "💻 Среда: Local PC"
+
     def should_notify_single(self, ctx: StateMachineContext) -> bool:
         """Determine if a single account run should trigger a notification based on mode."""
         if self.mode in ("summary", "digest_2x", "smart_2x"):
@@ -229,6 +236,7 @@ class TelegramNotifier:
                 f"⏱️ <i>Время: {now_str}</i>"
             )
 
+        msg += f"\n{self.get_execution_environment_label()}"
         return self.send_raw_message(msg)
 
     def notify_summary(self, contexts: List[StateMachineContext], force: bool = False) -> bool:
@@ -344,16 +352,27 @@ class TelegramNotifier:
 
         # Date and claim status for today
         today_date_str = datetime.now(self.tz).strftime("%Y-%m-%d")
+        today_utc_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         today_display = datetime.now(self.tz).strftime("%d.%m")
 
         claimed_today_count = 0
         for c in contexts:
+            last_claimed = getattr(c.status, "last_claimed_on", None) if c.status else None
             if c.current_state == CrateState.CLAIMED:
                 claimed_today_count += 1
-            elif c.status and getattr(c.status, "last_claimed_on", None) == today_date_str:
+            elif last_claimed and last_claimed in (today_date_str, today_utc_str):
                 claimed_today_count += 1
             elif c.current_state == CrateState.COOLDOWN and c.status and not getattr(c.status, "available", False):
-                claimed_today_count += 1
+                next_reset = getattr(c.status, "next_reset_at", None)
+                if next_reset:
+                    try:
+                        reset_dt = datetime.fromisoformat(next_reset.replace("Z", "+00:00"))
+                        if reset_dt > datetime.now(timezone.utc):
+                            claimed_today_count += 1
+                    except Exception:
+                        claimed_today_count += 1
+                else:
+                    claimed_today_count += 1
 
         if claimed_today_count == total_accounts:
             date_claim_line = f"📅 <b>Награда за {today_display}:</b> ✅ Забрана со всех ({total_accounts}/{total_accounts})"
@@ -424,6 +443,9 @@ class TelegramNotifier:
                     err_msg = html.escape(c.error_message or "ошибка")[:40]
                     msg_parts.append(f"• <code>{html.escape(str(c.username))}</code>: {err_msg}")
 
+        msg_parts.append(f"━━━━━━━━━━━━━━━━━━━")
+        msg_parts.append(self.get_execution_environment_label())
+
         return "\n".join(msg_parts)
 
     def get_updates(self, offset: Optional[int] = None, timeout: int = 5) -> List[Dict[str, Any]]:
@@ -491,7 +513,8 @@ class TelegramNotifier:
                 return (
                     f"🎯 <b>THUNDR GOAL — {html.escape(specific_acc.username)}</b>\n\n"
                     f"{res_line}\n"
-                    f"🔥 Стрик: <b>{getattr(getattr(specific_acc, 'status', None), 'streak', 0)}</b> дн."
+                    f"🔥 Стрик: <b>{getattr(getattr(specific_acc, 'status', None), 'streak', 0)}</b> дн.\n\n"
+                    f"{self.get_execution_environment_label()}"
                 )
 
             # Return the full executive summary from Screenshot 2!
@@ -512,10 +535,10 @@ class TelegramNotifier:
                     boost_type = parts[2].lower() if len(parts) > 2 else "mini"
 
                 if not user_arg:
-                    return "⚠️ Укажите имя аккаунта: <code>/boost buy &lt;логин&gt; [тип]</code>"
+                    return f"⚠️ Укажите имя аккаунта: <code>/boost buy &lt;логин&gt; [тип]</code>\n\n{self.get_execution_environment_label()}"
 
                 if boost_type not in cost_map:
-                    return f"❌ Неверный тип буста '{html.escape(boost_type)}'. Доступны: mini, small, normal, super."
+                    return f"❌ Неверный тип буста '{html.escape(boost_type)}'. Доступны: mini, small, normal, super.\n\n{self.get_execution_environment_label()}"
 
                 matched_acc = None
                 if accounts:
@@ -525,7 +548,7 @@ class TelegramNotifier:
                             break
 
                 if not matched_acc:
-                    return f"❌ Аккаунт '<code>{html.escape(user_arg)}</code>' не найден."
+                    return f"❌ Аккаунт '<code>{html.escape(user_arg)}</code>' не найден.\n\n{self.get_execution_environment_label()}"
 
                 cost = cost_map[boost_type]
                 bal = getattr(matched_acc, "balance", 0) or 0
@@ -538,14 +561,16 @@ class TelegramNotifier:
                         f"💰 Баланс: <b>{bal}</b> монет\n"
                         f"📦 Тип: <b>{boost_type.upper()}</b> (цена: {cost})\n"
                         f"Статус: {status_str}\n\n"
-                        f"💡 Для покупки отправьте: <code>/boost buy {matched_acc.username} {boost_type}</code>"
+                        f"💡 Для покупки отправьте: <code>/boost buy {matched_acc.username} {boost_type}</code>\n\n"
+                        f"{self.get_execution_environment_label()}"
                     )
 
                 # Attempt purchase
                 if bal < cost:
                     return (
                         f"❌ Недостаточно монет у <code>{html.escape(matched_acc.username)}</code>: "
-                        f"баланс <b>{bal}</b>, требуется <b>{cost}</b> для {boost_type}."
+                        f"баланс <b>{bal}</b>, требуется <b>{cost}</b> для {boost_type}.\n\n"
+                        f"{self.get_execution_environment_label()}"
                     )
 
                 if client is None:
@@ -556,7 +581,7 @@ class TelegramNotifier:
                             ThundrBrowserClient(headless=True),
                         )
                     except Exception as e:
-                        return f"❌ Ошибка инициализации клиента: {e}"
+                        return f"❌ Ошибка инициализации клиента: {e}\n\n{self.get_execution_environment_label()}"
 
                 try:
                     res = client.spend_boost(matched_acc, boost=boost_type)
@@ -564,10 +589,11 @@ class TelegramNotifier:
                         f"✅ <b>Буст {boost_type.upper()} успешно активирован!</b>\n\n"
                         f"👤 Аккаунт: <code>{html.escape(matched_acc.username)}</code>\n"
                         f"💰 Списано: <b>{cost}</b> монет\n"
-                        f"🎉 Результат: {html.escape(str(res.get('message', 'Успешно активирован!')))}"
+                        f"🎉 Результат: {html.escape(str(res.get('message', 'Успешно активирован!')))}\n\n"
+                        f"{self.get_execution_environment_label()}"
                     )
                 except Exception as e:
-                    return f"❌ Ошибка при покупке буста для <code>{html.escape(matched_acc.username)}</code>: {html.escape(str(e))}"
+                    return f"❌ Ошибка при покупке буста для <code>{html.escape(matched_acc.username)}</code>: {html.escape(str(e))}\n\n{self.get_execution_environment_label()}"
 
             # General boost store display
             eligible_accs = [
@@ -585,12 +611,13 @@ class TelegramNotifier:
                 f"• <b>Super Boost:</b> 2100 монет (60 часов)\n\n"
                 f"💎 Аккаунтов с балансом >= 100 монет (Mini): <b>{ready_mini}</b>\n"
                 f"👤 Готовы к бусту: {eligible_str}\n\n"
-                f"💡 <i>Для покупки отправьте:</i> <code>/boost buy &lt;логин&gt; [mini]</code>"
+                f"💡 <i>Для покупки отправьте:</i> <code>/boost buy &lt;логин&gt; [mini]</code>\n\n"
+                f"{self.get_execution_environment_label()}"
             )
 
         elif base_cmd.startswith("/status") or base_cmd.startswith("/check"):
             if not accounts:
-                return "🔍 Нет данных об аккаунтах."
+                return f"🔍 Нет данных об аккаунтах.\n\n{self.get_execution_environment_label()}"
             ready_accs = [a for a in accounts if getattr(getattr(a, "status", None), "available", False)]
             ready = len(ready_accs)
             total = len(accounts)
@@ -613,7 +640,7 @@ class TelegramNotifier:
             if ready_accs:
                 names = ", ".join(f"<code>{html.escape(a.username)}</code>" for a in ready_accs[:10])
                 msg += f"\n🎉 <b>Готовы к сбору:</b> {names}\n"
-            msg += "\n💡 <i>Отправьте /claim чтобы собрать готовые кейсы.</i>"
+            msg += f"\n💡 <i>Отправьте /claim чтобы собрать готовые кейсы.</i>\n\n{self.get_execution_environment_label()}"
             return msg
 
         elif base_cmd.startswith("/start") or base_cmd.startswith("/help"):

@@ -514,6 +514,7 @@ def goal_command(target: int, account_opt: Optional[str], no_telegram: bool) -> 
     if not no_telegram:
         notifier = TelegramNotifier()
         if notifier.is_configured:
+            _process_pending_telegram_updates(notifier, account_mgr)
             msg = notifier.format_summary_report(accounts)
             notifier.send_raw_message(msg)
 
@@ -531,6 +532,7 @@ def summary_command(no_telegram: bool) -> None:
     summary_text = notifier.format_summary_report(accounts)
     console.print(summary_text)
     if not no_telegram and notifier.is_configured:
+        _process_pending_telegram_updates(notifier, account_mgr)
         notifier.send_raw_message(summary_text)
         console.print("[bold green]✔ Executive summary report sent to Telegram![/bold green]")
 
@@ -577,6 +579,7 @@ def boost_command(
     if not no_telegram:
         notifier = TelegramNotifier()
         if notifier.is_configured:
+            _process_pending_telegram_updates(notifier, account_mgr)
             msg = notifier.format_summary_report(accounts)
             notifier.send_raw_message(msg)
 
