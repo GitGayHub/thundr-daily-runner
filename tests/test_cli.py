@@ -391,4 +391,44 @@ def test_cli_run_consumes_stats_requested(mock_notifier_cls, mock_sm_cls, tmp_pa
     assert not mock_notifier.send_stats_breakdown.called
 
 
+@patch("cli.DailyCrateStateMachine")
+@patch("cli.TelegramNotifier")
+def test_cli_run_stats_requested_includes_all_accounts_even_single_target(mock_notifier_cls, mock_sm_cls, tmp_path, monkeypatch):
+    test_acc_file = tmp_path / "accounts.json"
+    test_state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(test_state_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "gamasek1", "-p", "pwd"])
+    runner.invoke(cli, ["add-account", "-u", "gamasek2", "-p", "pwd"])
+
+    mock_sm = MagicMock()
+    mock_sm.run.return_value = StateMachineContext(
+        username="gamasek1",
+        current_state=CrateState.CLAIMED,
+        initial_balance=50,
+        final_balance=60,
+    )
+    mock_sm_cls.return_value = mock_sm
+
+    mock_notifier = MagicMock()
+    mock_notifier.is_configured = True
+    mock_notifier.is_stats_requested.return_value = True
+    mock_notifier_cls.return_value = mock_notifier
+
+    # Execute for gamasek1 only
+    res = runner.invoke(cli, ["run", "gamasek1"])
+    assert res.exit_code == 0
+    assert mock_notifier.send_stats_breakdown.called
+    # Extract passed items
+    call_args = mock_notifier.send_stats_breakdown.call_args[0][0]
+    usernames = [getattr(it, "username", "") for it in call_args]
+    assert "gamasek1" in usernames
+    assert "gamasek2" in usernames
+    assert mock_notifier.clear_stats_requested.called
+
+
 

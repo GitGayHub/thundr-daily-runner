@@ -623,21 +623,40 @@ class TelegramNotifier:
 
         accounts_data = []
         for item in items:
+            username = ""
+            bal = None
+            streak = None
+
             if isinstance(item, StateMachineContext):
                 username = item.username
-                bal = item.final_balance if item.final_balance is not None else (item.initial_balance or 0)
+                bal = item.final_balance if item.final_balance is not None else item.initial_balance
+                if bal is None and item.status:
+                    bal = getattr(item.status, "coin_balance", None)
+                if bal is None:
+                    try:
+                        from thundr.account import AccountManager
+                        acc_rec = AccountManager().get_account(username)
+                        if acc_rec:
+                            bal = acc_rec.balance
+                    except Exception:
+                        pass
                 streak = getattr(item.status, "streak", None) if item.status else None
             elif hasattr(item, "username"):
                 username = item.username
-                bal = getattr(item, "balance", 0)
+                bal = getattr(item, "balance", None)
                 if bal is None and getattr(item, "last_status", None):
-                    bal = getattr(item.last_status, "coin_balance", 0)
-                bal = bal or 0
+                    bal = getattr(item.last_status, "coin_balance", None)
                 streak = getattr(getattr(item, "last_status", None), "streak", None)
             elif isinstance(item, dict):
                 username = item.get("username", "")
-                bal = item.get("balance") or item.get("final_balance") or 0
+                bal = item.get("balance") if item.get("balance") is not None else item.get("final_balance")
+                if bal is None and isinstance(item.get("last_status"), dict):
+                    bal = item["last_status"].get("coin_balance")
+                if bal is None:
+                    bal = item.get("coin_balance")
                 streak = item.get("streak")
+                if streak is None and isinstance(item.get("last_status"), dict):
+                    streak = item["last_status"].get("streak")
             else:
                 continue
 
@@ -937,7 +956,11 @@ class TelegramNotifier:
             msg += f"\n💡 <i>Отправьте /claim чтобы собрать готовые кейсы.</i>\n\n{self.get_execution_environment_label()}"
             return msg
 
-        elif base_cmd.startswith("/stats") or base_cmd in ("/статс", "/статистика"):
+        elif (
+            base_cmd.startswith("/stats")
+            or base_cmd.startswith("/статс")
+            or base_cmd.startswith("/статистика")
+        ):
             self.set_stats_requested(True)
             return (
                 "⏳ <b>Запрос на подробную статистику по всем аккаунтам принят.</b>\n"

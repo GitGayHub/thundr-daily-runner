@@ -1,5 +1,5 @@
-name: Thundr Daily Rewards Claimer
-
+name: Scheduled Runner
+ 
 on:
   schedule:
     # Run every 5 hours as requested by user (00:05, 05:05, 10:05, 15:05, 20:05 UTC)
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Action to execute: run (claim rewards), summary (executive report), stats (detailed account coin breakdown), goal (progress report), boost (boost store check)'
+        description: 'Action to execute (run, summary, stats, goal, boost)'
         type: choice
         options:
           - run
@@ -38,7 +38,7 @@ on:
         default: true
 
 concurrency:
-  group: thundr-daily-${{ github.ref }}
+  group: runner-daily-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -81,7 +81,7 @@ jobs:
           restore-keys: |
             thundr-data-
 
-      - name: Run Thundr Daily Claimer
+      - name: Run Scheduled Service
         env:
           THUNDR_ACCOUNTS_JSON: ${{ secrets.THUNDR_ACCOUNTS_JSON }}
           THUNDR_USERNAME: ${{ secrets.THUNDR_USERNAME }}
@@ -129,12 +129,12 @@ jobs:
             data/history.csv
           key: thundr-data-${{ github.run_id }}
 
-      - name: Upload Claim History & Statistics
+      - name: Upload Service Artifacts
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: thundr-history
+          name: service-artifacts
           path: |
             data/history.json
             data/history.csv
@@ -153,7 +153,7 @@ jobs:
           token = os.getenv('TELEGRAM_BOT_TOKEN')
           chat_id = os.getenv('TELEGRAM_CHAT_ID')
           if token and chat_id:
-              text = '❌ <b>Thundr Daily Claimer — Ошибка в GitHub Actions!</b>\n\nЗапуск завершился с ошибкой. Проверьте логи во вкладке Actions.'
+              text = '❌ <b>Daily Runner — Ошибка в GitHub Actions!</b>\n\nЗапуск завершился с ошибкой. Проверьте логи во вкладке Actions.'
               try:
                   requests.post(f'https://api.telegram.org/bot{token}/sendMessage', json={'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}, timeout=10)
               except Exception:

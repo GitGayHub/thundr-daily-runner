@@ -633,6 +633,69 @@ def test_send_stats_breakdown():
         assert mock_send.call_count >= 1
 
 
+def test_format_stats_breakdown_with_account_dicts_and_last_status():
+    notifier = TelegramNotifier()
+    # Dicts as stored in accounts.json (containing last_status with coin_balance)
+    accs = [
+        {"username": "acc_a", "last_status": {"coin_balance": 120, "streak": 5}},
+        {"username": "acc_b", "balance": 45},
+        {"username": "acc_c", "coin_balance": 80},
+    ]
+    messages = notifier.format_stats_breakdown(accs)
+    assert len(messages) == 1
+    msg = messages[0]
+    assert "acc_a</code>: <b>120</b> монет" in msg
+    assert "acc_b</code>: <b>45</b> монет" in msg
+    assert "acc_c</code>: <b>80</b> монет" in msg
+    assert "Всего аккаунтов: <b>3</b>" in msg
+    assert "Общий баланс: <b>245</b> монет" in msg
+
+
+def test_format_stats_breakdown_state_machine_context_fallback(tmp_path, monkeypatch):
+    from thundr.account import AccountManager
+    from thundr.state_machine import StateMachineContext, CrateState
+    acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(acc_file))
+    mgr = AccountManager()
+    mgr.add_account("failing_acc", password="p")
+    # Set known balance
+    mgr.get_account("failing_acc").last_status = DailyCrateStatus(available=True, coin_balance=75, streak=3)
+    mgr.save()
+
+    notifier = TelegramNotifier()
+    # Context with None initial and final balances (e.g. failed before check)
+    failed_ctx = StateMachineContext(
+        username="failing_acc",
+        current_state=CrateState.FAILED,
+        initial_balance=None,
+        final_balance=None,
+    )
+    messages = notifier.format_stats_breakdown([failed_ctx])
+    assert len(messages) == 1
+    assert "failing_acc</code>: <b>75</b> монет" in messages[0]
+
+
+def test_handle_command_russian_aliases_with_bot_mention(tmp_path, monkeypatch):
+    state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(state_file))
+
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+
+    # 1. /статс@ThundrCoinsBot
+    notifier.clear_stats_requested()
+    reply = notifier.handle_command("/статс@ThundrCoinsBot")
+    assert reply is not None
+    assert "Запрос на подробную статистику по всем аккаунтам принят" in reply
+    assert notifier.is_stats_requested() is True
+
+    # 2. /статистика@ThundrCoinsBot
+    notifier.clear_stats_requested()
+    reply = notifier.handle_command("/статистика@ThundrCoinsBot")
+    assert reply is not None
+    assert "Запрос на подробную статистику по всем аккаунтам принят" in reply
+    assert notifier.is_stats_requested() is True
+
+
 
 
 

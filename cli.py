@@ -194,7 +194,16 @@ def _execute_rewards(
                 telegram_notifier.notify_summary(results, force=force_notify)
             if telegram_notifier.is_stats_requested():
                 logger.info("Stats breakdown requested; sending account breakdown to Telegram.")
-                telegram_notifier.send_stats_breakdown(results or accounts)
+                all_configured_accounts = account_mgr.list_accounts(enabled_only=False)
+                results_map = {r.username.lower(): r for r in (results or [])}
+                stats_items = []
+                for a in all_configured_accounts:
+                    ctx = results_map.get(a.username.lower())
+                    if ctx and ctx.final_balance is not None:
+                        stats_items.append(ctx)
+                    else:
+                        stats_items.append(a)
+                telegram_notifier.send_stats_breakdown(stats_items or results or accounts)
                 telegram_notifier.clear_stats_requested()
     except Exception as exc:
         logger.exception(f"Fatal error during rewards execution: {exc}")
@@ -545,6 +554,10 @@ def goal_command(target: int, account_opt: Optional[str], no_telegram: bool) -> 
             _process_pending_telegram_updates(notifier, account_mgr)
             msg = notifier.format_summary_report(accounts)
             notifier.send_raw_message(msg)
+            if notifier.is_stats_requested():
+                all_accounts = account_mgr.list_accounts(enabled_only=False)
+                notifier.send_stats_breakdown(all_accounts or accounts)
+                notifier.clear_stats_requested()
 
 
 @cli.command("summary")
@@ -566,7 +579,8 @@ def summary_command(no_telegram: bool) -> None:
         notifier.send_raw_message(summary_text)
         console.print("[bold green]✔ Executive summary report sent to Telegram![/bold green]")
         if notifier.is_stats_requested():
-            notifier.send_stats_breakdown(accounts)
+            all_accounts = account_mgr.list_accounts(enabled_only=False)
+            notifier.send_stats_breakdown(all_accounts or accounts)
             notifier.clear_stats_requested()
             console.print("[bold green]✔ Account stats breakdown sent to Telegram![/bold green]")
 
@@ -644,6 +658,10 @@ def boost_command(
             _process_pending_telegram_updates(notifier, account_mgr)
             msg = notifier.format_summary_report(accounts)
             notifier.send_raw_message(msg)
+            if notifier.is_stats_requested():
+                all_accounts = account_mgr.list_accounts(enabled_only=False)
+                notifier.send_stats_breakdown(all_accounts or accounts)
+                notifier.clear_stats_requested()
 
     eligible = [a for a in accounts if (a.balance or 0) >= cost]
     console.print(
