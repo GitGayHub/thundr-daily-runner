@@ -318,3 +318,77 @@ def test_cli_goal_and_boost_send_executive_summary(mock_notifier_cls, tmp_path, 
     mock_notifier.send_raw_message.assert_called_with("📊 THUNDR REPORT — СВОДКА")
 
 
+def test_cli_stats_command_display(tmp_path, monkeypatch):
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "gamasek1", "-p", "pwd"])
+
+    res = runner.invoke(cli, ["stats", "--no-telegram"])
+    assert res.exit_code == 0
+    assert "ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ" in res.output
+    assert "gamasek1" in res.output
+
+
+def test_cli_stats_command_request_next(tmp_path, monkeypatch):
+    test_state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(test_state_file))
+
+    runner = CliRunner()
+    res = runner.invoke(cli, ["stats", "--request-next"])
+    assert res.exit_code == 0
+    assert "Flag 'stats_requested' set to True" in res.output
+
+    from thundr.telegram import TelegramNotifier
+    notifier = TelegramNotifier()
+    assert notifier.is_stats_requested() is True
+
+
+@patch("cli.DailyCrateStateMachine")
+@patch("cli.TelegramNotifier")
+def test_cli_run_consumes_stats_requested(mock_notifier_cls, mock_sm_cls, tmp_path, monkeypatch):
+    test_acc_file = tmp_path / "accounts.json"
+    test_state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(test_state_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "gamasek1", "-p", "pwd"])
+
+    mock_sm = MagicMock()
+    mock_sm.run.return_value = StateMachineContext(
+        username="gamasek1",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=50,
+        final_balance=50,
+    )
+    mock_sm_cls.return_value = mock_sm
+
+    mock_notifier = MagicMock()
+    mock_notifier.is_configured = True
+    # Case 1: stats_requested is True
+    mock_notifier.is_stats_requested.return_value = True
+    mock_notifier_cls.return_value = mock_notifier
+
+    res = runner.invoke(cli, ["run"])
+    assert res.exit_code == 0
+    assert mock_notifier.notify_summary.called
+    assert mock_notifier.send_stats_breakdown.called
+    assert mock_notifier.clear_stats_requested.called
+
+    # Case 2: stats_requested is False
+    mock_notifier.reset_mock()
+    mock_notifier.is_stats_requested.return_value = False
+
+    res2 = runner.invoke(cli, ["run"])
+    assert res2.exit_code == 0
+    assert mock_notifier.notify_summary.called
+    assert not mock_notifier.send_stats_breakdown.called
+
+
+

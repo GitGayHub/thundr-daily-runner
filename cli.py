@@ -184,9 +184,18 @@ def _execute_rewards(
                 if telegram_notifier and (len(accounts) == 1 or telegram_notifier.mode == "all"):
                     telegram_notifier.notify_single_run(err_ctx, force=(len(accounts) == 1))
 
+        # Check for any incoming telegram commands received during execution
+        if telegram_notifier and telegram_notifier.is_configured:
+            _process_pending_telegram_updates(telegram_notifier, account_mgr, client)
+
         # Send batch summary to Telegram
-        if telegram_notifier and results:
-            telegram_notifier.notify_summary(results, force=force_notify)
+        if telegram_notifier:
+            if results:
+                telegram_notifier.notify_summary(results, force=force_notify)
+            if telegram_notifier.is_stats_requested():
+                logger.info("Stats breakdown requested; sending account breakdown to Telegram.")
+                telegram_notifier.send_stats_breakdown(results or accounts)
+                telegram_notifier.clear_stats_requested()
     except Exception as exc:
         logger.exception(f"Fatal error during rewards execution: {exc}")
         if telegram_notifier:
@@ -548,12 +557,46 @@ def summary_command(no_telegram: bool) -> None:
         console.print("[yellow]⚠️ No accounts configured.[/yellow]")
         return
     notifier = TelegramNotifier()
+    if not no_telegram and notifier.is_configured:
+        _process_pending_telegram_updates(notifier, account_mgr)
+
     summary_text = notifier.format_summary_report(accounts)
     console.print(summary_text)
     if not no_telegram and notifier.is_configured:
-        _process_pending_telegram_updates(notifier, account_mgr)
         notifier.send_raw_message(summary_text)
         console.print("[bold green]✔ Executive summary report sent to Telegram![/bold green]")
+        if notifier.is_stats_requested():
+            notifier.send_stats_breakdown(accounts)
+            notifier.clear_stats_requested()
+            console.print("[bold green]✔ Account stats breakdown sent to Telegram![/bold green]")
+
+
+@cli.command("stats")
+@click.option("--no-telegram", is_flag=True, help="Do not send stats report to Telegram.")
+@click.option("--request-next", is_flag=True, help="Flag stats to be sent on next runner execution.")
+def stats_command(no_telegram: bool, request_next: bool) -> None:
+    """Display individual account coin balances and manage stats request flag."""
+    notifier = TelegramNotifier()
+    account_mgr = AccountManager()
+    if request_next:
+        notifier.set_stats_requested(True)
+        console.print("[bold green]✔ Flag 'stats_requested' set to True! Next runner run will send breakdown.[/bold green]")
+        return
+
+    accounts = account_mgr.list_accounts(enabled_only=True)
+    if not accounts:
+        console.print("[yellow]⚠️ No accounts configured.[/yellow]")
+        return
+
+    breakdown_msgs = notifier.format_stats_breakdown(accounts)
+    for msg in breakdown_msgs:
+        console.print(msg)
+
+    if not no_telegram and notifier.is_configured:
+        _process_pending_telegram_updates(notifier, account_mgr)
+        notifier.send_stats_breakdown(accounts)
+        notifier.clear_stats_requested()
+        console.print("[bold green]✔ Account stats breakdown sent to Telegram![/bold green]")
 
 
 @cli.command("boost")

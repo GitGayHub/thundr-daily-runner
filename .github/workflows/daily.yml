@@ -7,11 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Action to execute: run (claim rewards), summary (executive report), goal (progress report), boost (boost store check)'
+        description: 'Action to execute: run (claim rewards), summary (executive report), stats (detailed account coin breakdown), goal (progress report), boost (boost store check)'
         type: choice
         options:
           - run
           - summary
+          - stats
           - goal
           - boost
         default: run
@@ -108,6 +109,8 @@ jobs:
             python cli.py goal
           elif [ "$ACTION" = "summary" ]; then
             python cli.py summary
+          elif [ "$ACTION" = "stats" ]; then
+            python cli.py stats
           elif [ "$ACTION" = "boost" ]; then
             python cli.py boost --type mini $DRY_RUN_FLAG
           else

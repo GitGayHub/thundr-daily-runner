@@ -530,5 +530,109 @@ def test_account_is_claimed_for_cycle():
     assert s3.is_claimed_for_cycle("2026-10-19") is False
 
 
+def test_stats_requested_flag_persistence(tmp_path, monkeypatch):
+    state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(state_file))
+
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+    assert notifier.is_stats_requested() is False
+
+    notifier.set_stats_requested(True)
+    assert notifier.is_stats_requested() is True
+    assert state_file.exists()
+
+    # Create new instance to ensure persistent file read
+    notifier2 = TelegramNotifier(bot_token="tok", chat_id="123")
+    assert notifier2.is_stats_requested() is True
+
+    notifier2.clear_stats_requested()
+    assert notifier2.is_stats_requested() is False
+
+    notifier3 = TelegramNotifier(bot_token="tok", chat_id="123")
+    assert notifier3.is_stats_requested() is False
+
+
+def test_handle_command_stats(tmp_path, monkeypatch):
+    state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(state_file))
+
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+    assert notifier.is_stats_requested() is False
+
+    reply = notifier.handle_command("/stats")
+    assert reply is not None
+    assert "Запрос на подробную статистику по всем аккаунтам принят" in reply
+    assert "Будет отправлена при следующем запуске раннера" in reply
+    assert notifier.is_stats_requested() is True
+
+    # Test alias /stats@ThundrCoinsBot
+    notifier.clear_stats_requested()
+    assert notifier.is_stats_requested() is False
+    reply2 = notifier.handle_command("/stats@ThundrCoinsBot")
+    assert reply2 is not None
+    assert notifier.is_stats_requested() is True
+
+
+def test_format_stats_breakdown_natural_sorting():
+    notifier = TelegramNotifier()
+    # Unordered accounts with numbers
+    accs = [
+        {"username": "gamasek10", "balance": 100},
+        {"username": "gamasek2", "balance": 25},
+        {"username": "gamasek1", "balance": 15},
+        {"username": "gamasek20", "balance": 200},
+    ]
+    messages = notifier.format_stats_breakdown(accs)
+    assert len(messages) == 1
+    msg = messages[0]
+    assert "ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ" in msg
+    assert "Всего аккаунтов: <b>4</b>" in msg
+    assert "Общий баланс: <b>340</b> монет" in msg
+
+    # Natural sorting check: gamasek1 -> gamasek2 -> gamasek10 -> gamasek20
+    idx_1 = msg.find("gamasek1</code>: <b>15</b>")
+    idx_2 = msg.find("gamasek2</code>: <b>25</b>")
+    idx_10 = msg.find("gamasek10</code>: <b>100</b>")
+    idx_20 = msg.find("gamasek20</code>: <b>200</b>")
+    assert idx_1 < idx_2 < idx_10 < idx_20
+
+
+def test_format_stats_breakdown_chunking():
+    notifier = TelegramNotifier()
+    # Create 60 accounts
+    accs = [{"username": f"user{i}", "balance": i * 10} for i in range(1, 61)]
+    # With low max_chars to force chunking
+    messages = notifier.format_stats_breakdown(accs, max_chars=800)
+    assert len(messages) > 1
+
+    # Check that each message does not exceed max_chars
+    for i, msg in enumerate(messages, 1):
+        assert len(msg) <= 800
+        assert f"({i}/{len(messages)})" in msg
+
+    # Verify all accounts appear somewhere across the chunks
+    combined = "\n".join(messages)
+    for i in range(1, 61):
+        assert f"user{i}" in combined
+
+
+def test_format_stats_breakdown_empty():
+    notifier = TelegramNotifier()
+    messages = notifier.format_stats_breakdown([])
+    assert len(messages) == 1
+    assert "Нет данных об аккаунтах" in messages[0]
+
+
+def test_send_stats_breakdown():
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+    accs = [{"username": f"acc_{i}", "balance": 10} for i in range(10)]
+
+    with patch.object(notifier, "send_raw_message", return_value=True) as mock_send:
+        ok = notifier.send_stats_breakdown(accs)
+        assert ok is True
+        assert mock_send.call_count >= 1
+
+
+
 
 

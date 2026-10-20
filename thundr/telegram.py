@@ -87,6 +87,18 @@ class TelegramNotifier:
     def save_last_update_id(self, update_id: int) -> None:
         self._save_state({"last_update_id": update_id})
 
+    def is_stats_requested(self) -> bool:
+        """Check if a /stats breakdown request is currently pending."""
+        return bool(self._get_state().get("stats_requested", False))
+
+    def set_stats_requested(self, requested: bool = True) -> None:
+        """Persist the stats_requested flag in state storage."""
+        self._save_state({"stats_requested": bool(requested)})
+
+    def clear_stats_requested(self) -> None:
+        """Clear the stats_requested flag."""
+        self.set_stats_requested(False)
+
     @property
     def is_configured(self) -> bool:
         return bool(self.bot_token and self.chat_id)
@@ -601,6 +613,122 @@ class TelegramNotifier:
 
         return "\n".join(msg_parts)
 
+    def format_stats_breakdown(
+        self,
+        items: List[Any],
+        max_chars: int = 3800,
+    ) -> List[str]:
+        """Format a full breakdown of accounts and their coin balances, chunked within Telegram length limits."""
+        import re
+
+        accounts_data = []
+        for item in items:
+            if isinstance(item, StateMachineContext):
+                username = item.username
+                bal = item.final_balance if item.final_balance is not None else (item.initial_balance or 0)
+                streak = getattr(item.status, "streak", None) if item.status else None
+            elif hasattr(item, "username"):
+                username = item.username
+                bal = getattr(item, "balance", 0)
+                if bal is None and getattr(item, "last_status", None):
+                    bal = getattr(item.last_status, "coin_balance", 0)
+                bal = bal or 0
+                streak = getattr(getattr(item, "last_status", None), "streak", None)
+            elif isinstance(item, dict):
+                username = item.get("username", "")
+                bal = item.get("balance") or item.get("final_balance") or 0
+                streak = item.get("streak")
+            else:
+                continue
+
+            bal = int(bal) if isinstance(bal, (int, float)) else 0
+            accounts_data.append((username, bal, streak))
+
+        if not accounts_data:
+            return [
+                "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ</b>\n\n"
+                "Нет данных об аккаунтах.\n\n"
+                f"{self.get_execution_environment_label()}"
+            ]
+
+        def natural_sort_key(entry):
+            return [int(c) if c.isdigit() else c.lower() for c in re.split(r"(\d+)", str(entry[0]))]
+
+        accounts_data.sort(key=natural_sort_key)
+
+        total_accounts = len(accounts_data)
+        total_balance = sum(b for _, b, _ in accounts_data)
+
+        lines = []
+        for username, bal, streak in accounts_data:
+            safe_user = html.escape(str(username))
+            lines.append(f"👤 <code>{safe_user}</code>: <b>{bal}</b> монет")
+
+        env_label = self.get_execution_environment_label()
+        base_header = (
+            "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ</b>\n"
+            f"👥 Всего аккаунтов: <b>{total_accounts}</b> | 💰 Общий баланс: <b>{total_balance}</b> монет\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+        )
+        base_footer = f"\n━━━━━━━━━━━━━━━━━━━\n{env_label}"
+
+        # If everything fits in one message, return immediately
+        single_msg = base_header + "\n".join(lines) + base_footer
+        if len(single_msg) <= max_chars:
+            return [single_msg]
+
+        # Partition lines into chunks that respect max_chars
+        chunks: List[str] = []
+        current_lines: List[str] = []
+        current_len = 0
+
+        safety_headroom = 350
+        max_chunk_content_len = max(500, max_chars - safety_headroom)
+
+        for line in lines:
+            line_len = len(line) + 1
+            if current_lines and (current_len + line_len > max_chunk_content_len):
+                chunks.append("\n".join(current_lines))
+                current_lines = [line]
+                current_len = line_len
+            else:
+                current_lines.append(line)
+                current_len += line_len
+
+        if current_lines:
+            chunks.append("\n".join(current_lines))
+
+        num_parts = len(chunks)
+        messages: List[str] = []
+        for idx, chunk_text in enumerate(chunks, 1):
+            part_header = (
+                f"📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ ({idx}/{num_parts})</b>\n"
+                f"👥 Всего аккаунтов: <b>{total_accounts}</b> | 💰 Общий баланс: <b>{total_balance}</b> монет\n"
+                "━━━━━━━━━━━━━━━━━━━\n"
+            )
+            part_footer = (
+                base_footer
+                if idx == num_parts
+                else f"\n━━━━━━━━━━━━━━━━━━━\n<i>Продолжение ({idx}/{num_parts})...</i>"
+            )
+            messages.append(part_header + chunk_text + part_footer)
+
+        return messages
+
+    def send_stats_breakdown(self, items: List[Any]) -> bool:
+        """Send formatted account stats breakdown messages to Telegram."""
+        if not self.is_configured:
+            logger.debug("Telegram credentials not configured; skipping stats breakdown.")
+            return False
+
+        messages = self.format_stats_breakdown(items)
+        all_ok = True
+        for msg in messages:
+            ok = self.send_raw_message(msg)
+            if not ok:
+                all_ok = False
+        return all_ok
+
     def get_updates(self, offset: Optional[int] = None, timeout: int = 5) -> List[Dict[str, Any]]:
         """Fetch incoming Telegram updates via long polling."""
         if not self.is_configured:
@@ -809,11 +937,20 @@ class TelegramNotifier:
             msg += f"\n💡 <i>Отправьте /claim чтобы собрать готовые кейсы.</i>\n\n{self.get_execution_environment_label()}"
             return msg
 
+        elif base_cmd.startswith("/stats") or base_cmd in ("/статс", "/статистика"):
+            self.set_stats_requested(True)
+            return (
+                "⏳ <b>Запрос на подробную статистику по всем аккаунтам принят.</b>\n"
+                "Будет отправлена при следующем запуске раннера.\n\n"
+                f"{self.get_execution_environment_label()}"
+            )
+
         elif base_cmd.startswith("/start") or base_cmd.startswith("/help"):
             return (
                 f"⚡ <b>Thundr Daily Rewards Bot</b>\n\n"
                 f"Доступные команды:\n"
                 f"• /summary — Полная сводка по аккаунтам\n"
+                f"• /stats — Запросить подробный список монет по каждому аккаунту на следующий запуск\n"
                 f"• /goal — Прогресс достижения цели (50+ монет)\n"
                 f"• /goal &lt;логин&gt; — Прогресс конкретного аккаунта\n"
                 f"• /boost — Магазин бустов и готовые аккаунты\n"
