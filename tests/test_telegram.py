@@ -9,7 +9,11 @@ import pytest
 
 from thundr.account import DailyCrateStatus
 from thundr.state_machine import CrateState, StateMachineContext
-from thundr.telegram import TelegramNotifier
+from thundr.telegram import (
+    TelegramNotifier,
+    calculate_boost_minutes,
+    format_streak_info,
+)
 
 
 def test_telegram_not_configured():
@@ -694,6 +698,279 @@ def test_handle_command_russian_aliases_with_bot_mention(tmp_path, monkeypatch):
     assert reply is not None
     assert "Запрос на подробную статистику по всем аккаунтам принят" in reply
     assert notifier.is_stats_requested() is True
+
+
+def test_calculate_boost_minutes():
+    """Verify boost minute calculation across all tiers and edge cases."""
+    # Zero or negative or invalid
+    assert calculate_boost_minutes(0) == 0
+    assert calculate_boost_minutes(-50) == 0
+    assert calculate_boost_minutes(None) == 0
+    assert calculate_boost_minutes("100") == 0
+
+    # Less than 100 coins
+    assert calculate_boost_minutes(25) == 0
+    assert calculate_boost_minutes(99) == 0
+
+    # Mini boost: 1 min = 100 coins
+    assert calculate_boost_minutes(100) == 1
+    assert calculate_boost_minutes(150) == 1
+    assert calculate_boost_minutes(200) == 2
+    assert calculate_boost_minutes(305) == 3
+    assert calculate_boost_minutes(400) == 4
+
+    # Small boost: 10 mins = 450 coins
+    assert calculate_boost_minutes(450) == 10
+    assert calculate_boost_minutes(500) == 10
+    assert calculate_boost_minutes(550) == 11
+    assert calculate_boost_minutes(900) == 20
+
+    # Normal boost: 30 mins = 1000 coins
+    assert calculate_boost_minutes(1000) == 30
+    assert calculate_boost_minutes(1450) == 40
+    assert calculate_boost_minutes(1900) == 50
+    assert calculate_boost_minutes(2000) == 60
+    assert calculate_boost_minutes(2100) == 61
+    assert calculate_boost_minutes(2450) == 70
+    assert calculate_boost_minutes(3000) == 90
+    assert calculate_boost_minutes(5000) == 150
+    assert calculate_boost_minutes(10000) == 300
+
+
+def test_format_streak_info():
+    """Verify streak formatting and 7-day jackpot callouts."""
+    assert format_streak_info(None) == "0 дн."
+    assert format_streak_info(0) == "0 дн."
+    assert format_streak_info(-3) == "0 дн."
+    assert format_streak_info(1) == "1 дн."
+    assert format_streak_info(5) == "5 дн."
+    assert format_streak_info(6) == "6 дн. (завтра джекпот! 🎰)"
+    assert format_streak_info(7) == "7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+    assert format_streak_info(8) == "8 дн."
+    assert format_streak_info(13) == "13 дн. (завтра джекпот! 🎰)"
+    assert format_streak_info(14) == "14 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+    assert format_streak_info(21) == "21 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+
+
+def test_telegram_7_day_jackpot_in_single_run():
+    """Verify notify_single_run highlights jackpot on day 7 and tomorrow on day 6."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123", mode="all")
+
+    # Day 7 Claimed
+    ctx_7 = StateMachineContext(
+        username="lucky7",
+        current_state=CrateState.CLAIMED,
+        coins_earned=50,
+        final_balance=200,
+        status=DailyCrateStatus(streak=7, streak_bonus=True),
+    )
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_post.return_value = mock_resp
+
+        notifier.notify_single_run(ctx_7)
+        text = mock_post.call_args[1]["json"]["text"]
+        assert "7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)" in text
+
+    # Day 6 Cooldown
+    ctx_6 = StateMachineContext(
+        username="almost6",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=150,
+        status=DailyCrateStatus(streak=6),
+    )
+    with patch("requests.post") as mock_post:
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_post.return_value = mock_resp
+
+        notifier.notify_single_run(ctx_6)
+        text = mock_post.call_args[1]["json"]["text"]
+        assert "6 дн. (завтра джекпот! 🎰)" in text
+
+
+def test_telegram_7_day_jackpot_in_summary_report():
+    """Verify format_summary_report highlights accounts on day 7 and day 6."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+
+    c1 = StateMachineContext(
+        username="winner1",
+        current_state=CrateState.CLAIMED,
+        coins_earned=50,
+        final_balance=100,
+        status=DailyCrateStatus(streak=7),
+    )
+    c2 = StateMachineContext(
+        username="winner2",
+        current_state=CrateState.CLAIMED,
+        coins_earned=50,
+        final_balance=120,
+        status=DailyCrateStatus(streak=14),
+    )
+    c3 = StateMachineContext(
+        username="regular",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=50,
+        status=DailyCrateStatus(streak=3),
+    )
+
+    report = notifier.format_summary_report([c1, c2, c3])
+    assert "🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b> 2 акк." in report
+    assert "winner1" in report
+    assert "winner2" in report
+
+    # Tomorrow jackpot case
+    c_tmrw = StateMachineContext(
+        username="tmrw_guy",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=50,
+        status=DailyCrateStatus(streak=6),
+    )
+    report_tmrw = notifier.format_summary_report([c_tmrw, c3])
+    assert "🎰 <b>Завтра день джекпота:</b> 1 акк." in report_tmrw
+    assert "tmrw_guy" in report_tmrw
+
+
+def test_telegram_7_day_jackpot_in_status_and_goal():
+    """Verify handle_command highlights jackpot in /status and /goal."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+
+    acc7 = MagicMock()
+    acc7.username = "jackpot_acc"
+    acc7.balance = 100
+    acc7.status = DailyCrateStatus(available=False, streak=7)
+
+    # /status
+    res_status = notifier.handle_command("/status", accounts=[acc7])
+    assert "🎰 <b>Сегодня день джекпота (7-й день):</b>" in res_status
+    assert "jackpot_acc" in res_status
+
+    # /goal
+    res_goal = notifier.handle_command("/goal jackpot_acc", accounts=[acc7])
+    assert "🔥 Стрик: <b>7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)</b>" in res_goal
+
+    # Day 6 in /status
+    acc6 = MagicMock()
+    acc6.username = "day6_acc"
+    acc6.balance = 50
+    acc6.status = DailyCrateStatus(available=False, streak=6)
+
+    res_status6 = notifier.handle_command("/status", accounts=[acc6])
+    assert "🎰 <b>Завтра день джекпота:</b>" in res_status6
+    assert "day6_acc" in res_status6
+
+
+def test_format_stats_minutes_breakdown():
+    """Verify format_stats_minutes_breakdown computes boost minutes and includes pool totals."""
+    notifier = TelegramNotifier()
+    accs = [
+        {"username": "gamasek1", "balance": 25, "streak": 2},
+        {"username": "gamasek33", "balance": 100, "streak": 6},
+        {"username": "gamasek13", "balance": 305, "streak": 7},
+        {"username": "gamasek50", "balance": 1000, "streak": 14},
+    ]
+
+    messages = notifier.format_stats_minutes_breakdown(accs)
+    assert len(messages) == 1
+    msg = messages[0]
+
+    assert "ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ (МИНУТЫ БУСТА)" in msg
+    assert "Всего аккаунтов: <b>4</b>" in msg
+    # Total coins: 25 + 100 + 305 + 1000 = 1430
+    # Minutes: 0 + 1 + 3 + 30 = 34
+    assert "⏱️ Всего минут: <b>34</b> мин" in msg
+    assert "💰 1430 монет" in msg
+
+    # Check account lines matching prompt specification:
+    assert "• <code>gamasek1</code>: <b>0</b> мин (25 монет)" in msg
+    assert "• <code>gamasek33</code>: <b>1</b> мин (100 монет) 🔥 6 дн. (завтра джекпот!)" in msg
+    assert "• <code>gamasek13</code>: <b>3</b> мин (305 монет) 🔥 7 дн. 🎰 ДЖЕКПОТ!" in msg
+    assert "• <code>gamasek50</code>: <b>30</b> мин (1000 монет) 🔥 14 дн. 🎰 ДЖЕКПОТ!" in msg
+
+
+def test_format_stats_coins_breakdown():
+    """Verify format_stats_coins_breakdown outputs exact coins and streak callout."""
+    notifier = TelegramNotifier()
+    accs = [
+        {"username": "gamasek1", "balance": 25, "streak": 2},
+        {"username": "gamasek2", "balance": 30, "streak": 7},
+    ]
+
+    messages = notifier.format_stats_coins_breakdown(accs)
+    assert len(messages) == 1
+    msg = messages[0]
+
+    assert "ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ" in msg
+    assert "Всего аккаунтов: <b>2</b>" in msg
+    assert "Общий баланс: <b>55</b> монет" in msg
+    assert "• <code>gamasek1</code>: <b>25</b> монет" in msg
+    assert "• <code>gamasek2</code>: <b>30</b> монет (🔥 7 дн. 🎰 ДЖЕКПОТ!)" in msg
+
+
+def test_stats_coins_requested_flag_persistence(tmp_path, monkeypatch):
+    """Verify stats_coins_requested flag persists across TelegramNotifier instances."""
+    state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(state_file))
+
+    notifier1 = TelegramNotifier(bot_token="tok", chat_id="123")
+    assert notifier1.is_stats_coins_requested() is False
+
+    notifier1.set_stats_coins_requested(True)
+    assert notifier1.is_stats_coins_requested() is True
+    assert state_file.exists()
+
+    notifier2 = TelegramNotifier(bot_token="tok", chat_id="123")
+    assert notifier2.is_stats_coins_requested() is True
+
+    notifier2.clear_stats_coins_requested()
+    assert notifier2.is_stats_coins_requested() is False
+
+    notifier3 = TelegramNotifier(bot_token="tok", chat_id="123")
+    assert notifier3.is_stats_coins_requested() is False
+
+
+def test_handle_command_stats_coins_and_aliases(tmp_path, monkeypatch):
+    """Verify /stats_coins and aliases trigger stats_coins_requested flag."""
+    state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(state_file))
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+
+    aliases = [
+        "/stats_coins",
+        "/stats_coins@ThundrCoinsBot",
+        "/stats-coins",
+        "/статс_монеты",
+        "/статс-монеты",
+        "/coins",
+        "/coins@ThundrCoinsBot",
+        "/монеты",
+    ]
+
+    for alias in aliases:
+        notifier.clear_stats_coins_requested()
+        assert notifier.is_stats_coins_requested() is False
+        reply = notifier.handle_command(alias)
+        assert reply is not None
+        assert "Запрос на подробную статистику по монетам всех аккаунтов принят" in reply
+        assert notifier.is_stats_coins_requested() is True
+
+
+def test_send_stats_minutes_and_coins_breakdown():
+    """Verify send_stats_minutes_breakdown and send_stats_coins_breakdown invoke Telegram API."""
+    notifier = TelegramNotifier(bot_token="tok", chat_id="123")
+    accs = [{"username": f"user_{i}", "balance": i * 50} for i in range(1, 5)]
+
+    with patch.object(notifier, "send_raw_message", return_value=True) as mock_send:
+        ok_min = notifier.send_stats_minutes_breakdown(accs)
+        assert ok_min is True
+        assert mock_send.call_count == 1
+
+    with patch.object(notifier, "send_raw_message", return_value=True) as mock_send:
+        ok_coin = notifier.send_stats_coins_breakdown(accs)
+        assert ok_coin is True
+        assert mock_send.call_count == 1
+
 
 
 

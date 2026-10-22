@@ -23,9 +23,13 @@ from thundr.state_machine import (
     StateMachineContext,
 )
 from thundr.storage import HistoryEntry, StorageManager
-from thundr.telegram import TelegramNotifier
+from thundr.telegram import (
+    TelegramNotifier,
+    calculate_boost_minutes,
+    format_streak_info,
+)
 
-__version__ = "2.3.0"
+__version__ = "2.4.0"
 __all__ = [
     "AccountConfig",
     "AccountManager",
@@ -42,4 +46,6 @@ __all__ = [
     "HistoryEntry",
     "StorageManager",
     "TelegramNotifier",
+    "calculate_boost_minutes",
+    "format_streak_info",
 ]

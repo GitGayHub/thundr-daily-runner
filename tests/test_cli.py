@@ -431,4 +431,122 @@ def test_cli_run_stats_requested_includes_all_accounts_even_single_target(mock_n
     assert mock_notifier.clear_stats_requested.called
 
 
+def test_cli_stats_minutes_display(tmp_path, monkeypatch):
+    """Verify stats CLI command shows boost minutes breakdown."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "gamasek1", "-p", "pwd"])
+
+    res = runner.invoke(cli, ["stats", "--no-telegram"])
+    assert res.exit_code == 0
+    assert "ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ (МИНУТЫ БУСТА)" in res.output
+    assert "gamasek1" in res.output
+    assert "мин" in res.output
+
+
+def test_cli_stats_coins_command_and_aliases(tmp_path, monkeypatch):
+    """Verify stats-coins and aliases show exact coins breakdown."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "gamasek1", "-p", "pwd"])
+
+    # 1. stats-coins
+    res1 = runner.invoke(cli, ["stats-coins", "--no-telegram"])
+    assert res1.exit_code == 0
+    assert "gamasek1" in res1.output
+    assert "монет" in res1.output
+
+    # 2. stats_coins alias
+    res2 = runner.invoke(cli, ["stats_coins", "--no-telegram"])
+    assert res2.exit_code == 0
+    assert "gamasek1" in res2.output
+
+    # 3. coins alias
+    res3 = runner.invoke(cli, ["coins", "--no-telegram"])
+    assert res3.exit_code == 0
+    assert "gamasek1" in res3.output
+
+
+def test_cli_stats_coins_request_next(tmp_path, monkeypatch):
+    """Verify stats-coins --request-next sets stats_coins_requested flag."""
+    test_state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(test_state_file))
+
+    runner = CliRunner()
+    res = runner.invoke(cli, ["stats-coins", "--request-next"])
+    assert res.exit_code == 0
+    assert "Flag 'stats_coins_requested' set to True" in res.output
+
+    from thundr.telegram import TelegramNotifier
+    notifier = TelegramNotifier()
+    assert notifier.is_stats_coins_requested() is True
+
+
+@patch("cli.DailyCrateStateMachine")
+@patch("cli.TelegramNotifier")
+def test_cli_run_consumes_stats_coins_requested(mock_notifier_cls, mock_sm_cls, tmp_path, monkeypatch):
+    """Verify cli run consumes stats_coins_requested, calls send_stats_coins_breakdown, and clears flag."""
+    test_acc_file = tmp_path / "accounts.json"
+    test_state_file = tmp_path / "telegram_state.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.setenv("TELEGRAM_STATE_FILE", str(test_state_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "gamasek1", "-p", "pwd"])
+
+    mock_sm = MagicMock()
+    mock_sm.run.return_value = StateMachineContext(
+        username="gamasek1",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=50,
+        final_balance=50,
+    )
+    mock_sm_cls.return_value = mock_sm
+
+    mock_notifier = MagicMock()
+    mock_notifier.is_configured = True
+    mock_notifier.is_stats_requested.return_value = False
+    mock_notifier.is_stats_coins_requested.return_value = True
+    mock_notifier_cls.return_value = mock_notifier
+
+    res = runner.invoke(cli, ["run"])
+    assert res.exit_code == 0
+    assert mock_notifier.send_stats_coins_breakdown.called
+    assert mock_notifier.clear_stats_coins_requested.called
+
+
+@patch("cli.ThundrClient")
+def test_cli_check_jackpot_display(mock_client_cls, tmp_path, monkeypatch):
+    """Verify check command displays jackpot emoji for 7-day streak."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "charlie", "-p", "pwd"])
+
+    mock_instance = MagicMock()
+    mock_instance.get_crate_status.return_value = DailyCrateStatus(
+        available=False, coin_balance=80, streak=7
+    )
+    mock_client_cls.return_value = mock_instance
+
+    res = runner.invoke(cli, ["check"])
+    assert res.exit_code == 0
+    assert "charlie" in res.output
+    assert "🎰" in res.output
+
+
+
 

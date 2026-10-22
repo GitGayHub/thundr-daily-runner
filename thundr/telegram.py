@@ -19,7 +19,53 @@ import requests
 
 from thundr.state_machine import CrateState, StateMachineContext
 
+
 logger = logging.getLogger("thundr.telegram")
+
+
+def calculate_boost_minutes(coins: int) -> int:
+    """Calculate the maximum boost minutes obtainable for a coin balance based on store prices.
+
+    Store prices:
+    - Mini Boost: 1 min = 100 coins
+    - Small Boost: 10 mins = 450 coins
+    - Normal Boost: 30 mins = 1000 coins
+    - Super Boost: 60 mins = 2100 coins
+    """
+    if not isinstance(coins, (int, float)) or coins < 100:
+        return 0
+    coins = int(coins)
+    packages = [(100, 1), (450, 10), (1000, 30), (2100, 60)]
+
+    # 1000 coins for 30 mins is the optimal minute-to-coin ratio (0.030 min/coin).
+    # For large balances, decompose by taking batches of 1000 coins.
+    if coins >= 3000:
+        base_30s = (coins - 2000) // 1000
+        rem = coins - base_30s * 1000
+        return base_30s * 30 + calculate_boost_minutes(rem)
+
+    dp = [0] * (coins + 1)
+    for c in range(1, coins + 1):
+        best = dp[c - 1]
+        for cost, mins in packages:
+            if c >= cost:
+                cand = dp[c - cost] + mins
+                if cand > best:
+                    best = cand
+        dp[c] = best
+    return dp[coins]
+
+
+def format_streak_info(streak: Optional[int]) -> str:
+    """Format streak count with 7-day jackpot highlights."""
+    if streak is None or not isinstance(streak, (int, float)) or streak <= 0:
+        return "0 дн."
+    streak_int = int(streak)
+    if streak_int % 7 == 0:
+        return f"{streak_int} дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+    if streak_int % 7 == 6:
+        return f"{streak_int} дн. (завтра джекпот! 🎰)"
+    return f"{streak_int} дн."
 
 
 class TelegramNotifier:
@@ -98,6 +144,18 @@ class TelegramNotifier:
     def clear_stats_requested(self) -> None:
         """Clear the stats_requested flag."""
         self.set_stats_requested(False)
+
+    def is_stats_coins_requested(self) -> bool:
+        """Check if a /stats_coins breakdown request is currently pending."""
+        return bool(self._get_state().get("stats_coins_requested", False))
+
+    def set_stats_coins_requested(self, requested: bool = True) -> None:
+        """Persist the stats_coins_requested flag in state storage."""
+        self._save_state({"stats_coins_requested": bool(requested)})
+
+    def clear_stats_coins_requested(self) -> None:
+        """Clear the stats_coins_requested flag."""
+        self.set_stats_coins_requested(False)
 
     @property
     def is_configured(self) -> bool:
@@ -217,16 +275,20 @@ class TelegramNotifier:
         if ctx.current_state == CrateState.CLAIMED:
             earned = f"+{ctx.coins_earned}" if ctx.coins_earned > 0 else "0"
             streak_bonus_text = " (Streak Bonus Activated! 🌟)" if ctx.status and ctx.status.streak_bonus else ""
+            streak_val = ctx.status.streak if ctx.status else 1
+            streak_str = format_streak_info(streak_val)
             msg = (
                 f"🎁 <b>Thundr — Ежедневная награда получена!</b>\n\n"
                 f"👤 <b>Аккаунт:</b> <code>{safe_user}</code>\n"
                 f"🎉 <b>Выпало:</b> <b>{earned}</b> монет\n"
                 f"💰 <b>Новый баланс:</b> {ctx.final_balance} монет\n"
-                f"🔥 <b>Серия (Streak):</b> {ctx.status.streak if ctx.status else 1} дн.{streak_bonus_text}\n"
+                f"🔥 <b>Серия (Streak):</b> {streak_str}{streak_bonus_text}\n"
                 f"⏳ <b>До следующего кейса:</b> {rem_str} (в {reset_time})\n"
                 f"⏱️ <i>Время проверки: {now_str}</i>"
             )
         elif ctx.current_state == CrateState.COOLDOWN:
+            streak_val = ctx.status.streak if ctx.status else 0
+            streak_str = format_streak_info(streak_val)
             msg = (
                 f"⏳ <b>Thundr — Кейс на перезарядке</b>\n\n"
                 f"👤 <b>Аккаунт:</b> <code>{safe_user}</code>\n"
@@ -234,7 +296,7 @@ class TelegramNotifier:
                 f"🎁 <b>В прошлый раз выпало:</b> <b>{last_rew_str}</b>\n"
                 f"⏳ <b>Осталось до кейса:</b> <b>{rem_str}</b>\n"
                 f"⏰ <b>Будет доступен:</b> {reset_time}\n"
-                f"🔥 <b>Серия (Streak):</b> {ctx.status.streak if ctx.status else 0} дн.\n"
+                f"🔥 <b>Серия (Streak):</b> {streak_str}\n"
                 f"⏱️ <i>Время проверки: {now_str}</i>"
             )
         elif ctx.current_state == CrateState.UNCERTAIN:
@@ -569,6 +631,35 @@ class TelegramNotifier:
         raw_bal = (best_ctx.final_balance or best_ctx.initial_balance or 0) if best_ctx else 0
         best_bal = int(raw_bal) if isinstance(raw_bal, (int, float)) else 0
 
+        # Jackpot accounts check
+        jackpot_accs = []
+        near_jackpot_accs = []
+        for c in contexts:
+            st = getattr(c, "status", None)
+            streak = getattr(st, "streak", None) if st else None
+            if streak is None and isinstance(getattr(c, "last_status", None), dict):
+                streak = c.last_status.get("streak")
+            elif streak is None and hasattr(getattr(c, "last_status", None), "streak"):
+                streak = c.last_status.streak
+            if isinstance(streak, (int, float)) and streak > 0:
+                streak = int(streak)
+                if streak % 7 == 0:
+                    jackpot_accs.append((c.username, streak))
+                elif streak % 7 == 6:
+                    near_jackpot_accs.append((c.username, streak))
+
+        jackpot_line = None
+        if jackpot_accs:
+            jp_details = ", ".join(f"<code>{html.escape(str(u))}</code> ({s} дн.)" for u, s in jackpot_accs[:5])
+            if len(jackpot_accs) > 5:
+                jp_details += f" и ещё {len(jackpot_accs) - 5}"
+            jackpot_line = f"🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b> {len(jackpot_accs)} акк. ({jp_details})"
+        elif near_jackpot_accs:
+            njp_details = ", ".join(f"<code>{html.escape(str(u))}</code>" for u, _ in near_jackpot_accs[:5])
+            if len(near_jackpot_accs) > 5:
+                njp_details += f" и ещё {len(near_jackpot_accs) - 5}"
+            jackpot_line = f"🎰 <b>Завтра день джекпота:</b> {len(near_jackpot_accs)} акк. ({njp_details})"
+
         # Next reset timing and next crate display
         rem_str = self.format_time_remaining(next_reset_ts, now_dt=server_now_dt)
         if rem_str == "доступен сейчас! ⚡":
@@ -596,9 +687,13 @@ class TelegramNotifier:
             f"📊 <b>В среднем на 1 аккаунт:</b> {avg_balance:.1f} монет",
             drop_50_line,
             f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет)",
+        ]
+        if jackpot_line:
+            msg_parts.append(jackpot_line)
+        msg_parts.extend([
             f"━━━━━━━━━━━━━━━━━━━",
             next_crate_line,
-        ]
+        ])
 
         # Only list problematic accounts if any errors occurred
         if failed_count > 0:
@@ -613,12 +708,9 @@ class TelegramNotifier:
 
         return "\n".join(msg_parts)
 
-    def format_stats_breakdown(
-        self,
-        items: List[Any],
-        max_chars: int = 3800,
-    ) -> List[str]:
-        """Format a full breakdown of accounts and their coin balances, chunked within Telegram length limits."""
+    @staticmethod
+    def _extract_accounts_stats_data(items: List[Any]) -> List[tuple[str, int, Optional[int]]]:
+        """Extract sorted list of (username, balance, streak) tuples from diverse input objects."""
         import re
 
         accounts_data = []
@@ -661,32 +753,54 @@ class TelegramNotifier:
                 continue
 
             bal = int(bal) if isinstance(bal, (int, float)) else 0
+            if streak is not None:
+                try:
+                    streak = int(streak)
+                except Exception:
+                    streak = None
             accounts_data.append((username, bal, streak))
-
-        if not accounts_data:
-            return [
-                "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ</b>\n\n"
-                "Нет данных об аккаунтах.\n\n"
-                f"{self.get_execution_environment_label()}"
-            ]
 
         def natural_sort_key(entry):
             return [int(c) if c.isdigit() else c.lower() for c in re.split(r"(\d+)", str(entry[0]))]
 
         accounts_data.sort(key=natural_sort_key)
+        return accounts_data
+
+    def format_stats_minutes_breakdown(
+        self,
+        items: List[Any],
+        max_chars: int = 3800,
+    ) -> List[str]:
+        """Format breakdown of accounts and maximum boost minutes obtainable, chunked within Telegram limits."""
+        accounts_data = self._extract_accounts_stats_data(items)
+
+        if not accounts_data:
+            return [
+                "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ (МИНУТЫ БУСТА)</b>\n\n"
+                "Нет данных об аккаунтах.\n\n"
+                f"{self.get_execution_environment_label()}"
+            ]
 
         total_accounts = len(accounts_data)
         total_balance = sum(b for _, b, _ in accounts_data)
+        total_minutes = sum(calculate_boost_minutes(b) for _, b, _ in accounts_data)
 
         lines = []
         for username, bal, streak in accounts_data:
             safe_user = html.escape(str(username))
-            lines.append(f"👤 <code>{safe_user}</code>: <b>{bal}</b> монет")
+            mins = calculate_boost_minutes(bal)
+            streak_extra = ""
+            if streak is not None and streak > 0:
+                if streak % 7 == 0:
+                    streak_extra = f" 🔥 {streak} дн. 🎰 ДЖЕКПОТ!"
+                elif streak % 7 == 6:
+                    streak_extra = f" 🔥 {streak} дн. (завтра джекпот!)"
+            lines.append(f"• <code>{safe_user}</code>: <b>{mins}</b> мин ({bal} монет){streak_extra}")
 
         env_label = self.get_execution_environment_label()
         base_header = (
-            "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ</b>\n"
-            f"👥 Всего аккаунтов: <b>{total_accounts}</b> | 💰 Общий баланс: <b>{total_balance}</b> монет\n"
+            "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ (МИНУТЫ БУСТА)</b>\n"
+            f"👥 Всего аккаунтов: <b>{total_accounts}</b> | ⏱️ Всего минут: <b>{total_minutes}</b> мин (💰 {total_balance} монет)\n"
             "━━━━━━━━━━━━━━━━━━━\n"
         )
         base_footer = f"\n━━━━━━━━━━━━━━━━━━━\n{env_label}"
@@ -696,7 +810,84 @@ class TelegramNotifier:
         if len(single_msg) <= max_chars:
             return [single_msg]
 
-        # Partition lines into chunks that respect max_chars
+        chunks: List[str] = []
+        current_lines: List[str] = []
+        current_len = 0
+
+        safety_headroom = 350
+        max_chunk_content_len = max(500, max_chars - safety_headroom)
+
+        for line in lines:
+            line_len = len(line) + 1
+            if current_lines and (current_len + line_len > max_chunk_content_len):
+                chunks.append("\n".join(current_lines))
+                current_lines = [line]
+                current_len = line_len
+            else:
+                current_lines.append(line)
+                current_len += line_len
+
+        if current_lines:
+            chunks.append("\n".join(current_lines))
+
+        num_parts = len(chunks)
+        messages: List[str] = []
+        for idx, chunk_text in enumerate(chunks, 1):
+            part_header = (
+                f"📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ (МИНУТЫ БУСТА) ({idx}/{num_parts})</b>\n"
+                f"👥 Всего аккаунтов: <b>{total_accounts}</b> | ⏱️ Всего минут: <b>{total_minutes}</b> мин (💰 {total_balance} монет)\n"
+                "━━━━━━━━━━━━━━━━━━━\n"
+            )
+            part_footer = (
+                base_footer
+                if idx == num_parts
+                else f"\n━━━━━━━━━━━━━━━━━━━\n<i>Продолжение ({idx}/{num_parts})...</i>"
+            )
+            messages.append(part_header + chunk_text + part_footer)
+
+        return messages
+
+    def format_stats_coins_breakdown(
+        self,
+        items: List[Any],
+        max_chars: int = 3800,
+    ) -> List[str]:
+        """Format breakdown of accounts and exact coin balances, chunked within Telegram limits."""
+        accounts_data = self._extract_accounts_stats_data(items)
+
+        if not accounts_data:
+            return [
+                "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ</b>\n\n"
+                "Нет данных об аккаунтах.\n\n"
+                f"{self.get_execution_environment_label()}"
+            ]
+
+        total_accounts = len(accounts_data)
+        total_balance = sum(b for _, b, _ in accounts_data)
+
+        lines = []
+        for username, bal, streak in accounts_data:
+            safe_user = html.escape(str(username))
+            streak_extra = ""
+            if streak is not None and streak > 0:
+                if streak % 7 == 0:
+                    streak_extra = f" (🔥 {streak} дн. 🎰 ДЖЕКПОТ!)"
+                elif streak % 7 == 6:
+                    streak_extra = f" (🔥 {streak} дн. — завтра джекпот!)"
+            lines.append(f"• <code>{safe_user}</code>: <b>{bal}</b> монет{streak_extra}")
+
+        env_label = self.get_execution_environment_label()
+        base_header = (
+            "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ</b>\n"
+            f"👥 Всего аккаунтов: <b>{total_accounts}</b> | 💰 Общий баланс: <b>{total_balance}</b> монет\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+        )
+        base_footer = f"\n━━━━━━━━━━━━━━━━━━━\n{env_label}"
+
+        single_msg = base_header + "\n".join(lines) + base_footer
+        if len(single_msg) <= max_chars:
+            return [single_msg]
+
         chunks: List[str] = []
         current_lines: List[str] = []
         current_len = 0
@@ -734,19 +925,50 @@ class TelegramNotifier:
 
         return messages
 
-    def send_stats_breakdown(self, items: List[Any]) -> bool:
-        """Send formatted account stats breakdown messages to Telegram."""
+    def format_stats_breakdown(
+        self,
+        items: List[Any],
+        max_chars: int = 3800,
+        mode: str = "coins",
+    ) -> List[str]:
+        """Format breakdown of accounts in either 'coins' (default) or 'minutes' mode."""
+        if mode == "minutes":
+            return self.format_stats_minutes_breakdown(items, max_chars=max_chars)
+        return self.format_stats_coins_breakdown(items, max_chars=max_chars)
+
+    def send_stats_minutes_breakdown(self, items: List[Any]) -> bool:
+        """Send formatted account boost minutes breakdown messages to Telegram."""
         if not self.is_configured:
-            logger.debug("Telegram credentials not configured; skipping stats breakdown.")
+            logger.debug("Telegram credentials not configured; skipping minutes stats breakdown.")
             return False
 
-        messages = self.format_stats_breakdown(items)
+        messages = self.format_stats_minutes_breakdown(items)
         all_ok = True
         for msg in messages:
             ok = self.send_raw_message(msg)
             if not ok:
                 all_ok = False
         return all_ok
+
+    def send_stats_coins_breakdown(self, items: List[Any]) -> bool:
+        """Send formatted account exact coin breakdown messages to Telegram."""
+        if not self.is_configured:
+            logger.debug("Telegram credentials not configured; skipping coins stats breakdown.")
+            return False
+
+        messages = self.format_stats_coins_breakdown(items)
+        all_ok = True
+        for msg in messages:
+            ok = self.send_raw_message(msg)
+            if not ok:
+                all_ok = False
+        return all_ok
+
+    def send_stats_breakdown(self, items: List[Any], mode: str = "minutes") -> bool:
+        """Send formatted account stats breakdown messages to Telegram."""
+        if mode == "coins":
+            return self.send_stats_coins_breakdown(items)
+        return self.send_stats_minutes_breakdown(items)
 
     def get_updates(self, offset: Optional[int] = None, timeout: int = 5) -> List[Dict[str, Any]]:
         """Fetch incoming Telegram updates via long polling."""
@@ -810,10 +1032,12 @@ class TelegramNotifier:
                 else:
                     needed = target - bal
                     res_line = f"⏳ До цели осталось <b>{needed}</b> монет (баланс: <b>{bal}/{target}</b>, {pct:.0f}%)"
+                streak_val = getattr(getattr(specific_acc, "status", None), "streak", 0)
+                streak_str = format_streak_info(streak_val)
                 return (
                     f"🎯 <b>THUNDR GOAL — {html.escape(specific_acc.username)}</b>\n\n"
                     f"{res_line}\n"
-                    f"🔥 Стрик: <b>{getattr(getattr(specific_acc, 'status', None), 'streak', 0)}</b> дн.\n\n"
+                    f"🔥 Стрик: <b>{streak_str}</b>\n\n"
                     f"{self.get_execution_environment_label()}"
                 )
 
@@ -950,11 +1174,43 @@ class TelegramNotifier:
                 f"⏳ На перезарядке: <b>{total - ready}/{total}</b>\n"
                 f"⏰ До ближайшего сброса: <b>{rem_str}</b>{reset_suffix}\n"
             )
+
+            # Check jackpot status
+            jackpot_users = [
+                a.username for a in accounts
+                if getattr(getattr(a, "status", None), "streak", 0) and a.status.streak % 7 == 0
+            ]
+            near_jackpot_users = [
+                a.username for a in accounts
+                if getattr(getattr(a, "status", None), "streak", 0) and a.status.streak % 7 == 6
+            ]
+            if jackpot_users:
+                jp_str = ", ".join(f"<code>{html.escape(u)}</code>" for u in jackpot_users[:5])
+                msg += f"\n🎰 <b>Сегодня день джекпота (7-й день):</b> {jp_str}\n"
+            elif near_jackpot_users:
+                njp_str = ", ".join(f"<code>{html.escape(u)}</code>" for u in near_jackpot_users[:5])
+                msg += f"\n🎰 <b>Завтра день джекпота:</b> {njp_str}\n"
+
             if ready_accs:
                 names = ", ".join(f"<code>{html.escape(a.username)}</code>" for a in ready_accs[:10])
                 msg += f"\n🎉 <b>Готовы к сбору:</b> {names}\n"
             msg += f"\n💡 <i>Отправьте /claim чтобы собрать готовые кейсы.</i>\n\n{self.get_execution_environment_label()}"
             return msg
+
+        elif (
+            base_cmd.startswith("/stats_coins")
+            or base_cmd.startswith("/stats-coins")
+            or base_cmd.startswith("/статс_монеты")
+            or base_cmd.startswith("/статс-монеты")
+            or base_cmd.startswith("/coins")
+            or base_cmd.startswith("/монеты")
+        ):
+            self.set_stats_coins_requested(True)
+            return (
+                "⏳ <b>Запрос на подробную статистику по монетам всех аккаунтов принят.</b>\n"
+                "Будет отправлена при следующем запуске раннера.\n\n"
+                f"{self.get_execution_environment_label()}"
+            )
 
         elif (
             base_cmd.startswith("/stats")
@@ -973,7 +1229,8 @@ class TelegramNotifier:
                 f"⚡ <b>Thundr Daily Rewards Bot</b>\n\n"
                 f"Доступные команды:\n"
                 f"• /summary — Полная сводка по аккаунтам\n"
-                f"• /stats — Запросить подробный список монет по каждому аккаунту на следующий запуск\n"
+                f"• /stats — Доступные минуты буста по каждому аккаунту на следующий запуск\n"
+                f"• /stats_coins — Точный баланс монет по каждому аккаунту на следующий запуск\n"
                 f"• /goal — Прогресс достижения цели (50+ монет)\n"
                 f"• /goal &lt;логин&gt; — Прогресс конкретного аккаунта\n"
                 f"• /boost — Магазин бустов и готовые аккаунты\n"

@@ -193,7 +193,7 @@ def _execute_rewards(
             if results:
                 telegram_notifier.notify_summary(results, force=force_notify)
             if telegram_notifier.is_stats_requested():
-                logger.info("Stats breakdown requested; sending account breakdown to Telegram.")
+                logger.info("Stats (minutes) breakdown requested; sending account breakdown to Telegram.")
                 all_configured_accounts = account_mgr.list_accounts(enabled_only=False)
                 results_map = {r.username.lower(): r for r in (results or [])}
                 stats_items = []
@@ -203,8 +203,22 @@ def _execute_rewards(
                         stats_items.append(ctx)
                     else:
                         stats_items.append(a)
-                telegram_notifier.send_stats_breakdown(stats_items or results or accounts)
+                telegram_notifier.send_stats_breakdown(stats_items or results or accounts, mode="minutes")
                 telegram_notifier.clear_stats_requested()
+
+            if telegram_notifier.is_stats_coins_requested():
+                logger.info("Stats coins breakdown requested; sending account breakdown to Telegram.")
+                all_configured_accounts = account_mgr.list_accounts(enabled_only=False)
+                results_map = {r.username.lower(): r for r in (results or [])}
+                stats_items = []
+                for a in all_configured_accounts:
+                    ctx = results_map.get(a.username.lower())
+                    if ctx and ctx.final_balance is not None:
+                        stats_items.append(ctx)
+                    else:
+                        stats_items.append(a)
+                telegram_notifier.send_stats_coins_breakdown(stats_items or results or accounts)
+                telegram_notifier.clear_stats_coins_requested()
     except Exception as exc:
         logger.exception(f"Fatal error during rewards execution: {exc}")
         if telegram_notifier:
@@ -232,12 +246,20 @@ def _execute_rewards(
             CrateState.NOT_AUTHENTICATED: "red",
         }.get(r.current_state, "white")
 
+        st_val = r.status.streak if r.status else 0
+        if st_val > 0 and st_val % 7 == 0:
+            st_disp = f"[bold green]{st_val} 🎰 JACKPOT![/bold green]"
+        elif st_val > 0 and st_val % 7 == 6:
+            st_disp = f"{st_val} (tmrw 🎰)"
+        else:
+            st_disp = str(st_val)
+
         table.add_row(
             r.username,
             f"[{state_color}]{r.current_state.value}[/{state_color}]",
             f"+{r.coins_earned}" if r.coins_earned > 0 else "0",
             str(r.final_balance or r.initial_balance or "N/A"),
-            str(r.status.streak if r.status else 0),
+            st_disp,
             r.error_message or (r.state_history[-1][2] if r.state_history else ""),
         )
 
@@ -337,11 +359,19 @@ def check_command(account_arg: Optional[str], account_opt: Optional[str]) -> Non
                     pass
             rem_str = TelegramNotifier.format_time_remaining(status.next_reset_at, now_dt=server_now_dt)
             last_rew = f"+{acc.last_reward_coins}" if acc.last_reward_coins else "N/A"
+            st_val = status.streak or 0
+            if st_val > 0 and st_val % 7 == 0:
+                streak_disp = f"[bold green]{st_val} 🎰[/bold green]"
+            elif st_val > 0 and st_val % 7 == 6:
+                streak_disp = f"{st_val} (tmrw 🎰)"
+            else:
+                streak_disp = str(st_val)
+
             table.add_row(
                 acc.username,
                 avail_str,
                 str(status.coin_balance),
-                str(status.streak),
+                streak_disp,
                 rem_str,
                 last_rew,
                 status.next_reset_at or "N/A",
@@ -556,8 +586,12 @@ def goal_command(target: int, account_opt: Optional[str], no_telegram: bool) -> 
             notifier.send_raw_message(msg)
             if notifier.is_stats_requested():
                 all_accounts = account_mgr.list_accounts(enabled_only=False)
-                notifier.send_stats_breakdown(all_accounts or accounts)
+                notifier.send_stats_minutes_breakdown(all_accounts or accounts)
                 notifier.clear_stats_requested()
+            if notifier.is_stats_coins_requested():
+                all_accounts = account_mgr.list_accounts(enabled_only=False)
+                notifier.send_stats_coins_breakdown(all_accounts or accounts)
+                notifier.clear_stats_coins_requested()
 
 
 @cli.command("summary")
@@ -580,21 +614,26 @@ def summary_command(no_telegram: bool) -> None:
         console.print("[bold green]✔ Executive summary report sent to Telegram![/bold green]")
         if notifier.is_stats_requested():
             all_accounts = account_mgr.list_accounts(enabled_only=False)
-            notifier.send_stats_breakdown(all_accounts or accounts)
+            notifier.send_stats_minutes_breakdown(all_accounts or accounts)
             notifier.clear_stats_requested()
-            console.print("[bold green]✔ Account stats breakdown sent to Telegram![/bold green]")
+            console.print("[bold green]✔ Account stats minutes breakdown sent to Telegram![/bold green]")
+        if notifier.is_stats_coins_requested():
+            all_accounts = account_mgr.list_accounts(enabled_only=False)
+            notifier.send_stats_coins_breakdown(all_accounts or accounts)
+            notifier.clear_stats_coins_requested()
+            console.print("[bold green]✔ Account stats coins breakdown sent to Telegram![/bold green]")
 
 
 @cli.command("stats")
 @click.option("--no-telegram", is_flag=True, help="Do not send stats report to Telegram.")
 @click.option("--request-next", is_flag=True, help="Flag stats to be sent on next runner execution.")
 def stats_command(no_telegram: bool, request_next: bool) -> None:
-    """Display individual account coin balances and manage stats request flag."""
+    """Display individual account boost minutes and manage stats request flag."""
     notifier = TelegramNotifier()
     account_mgr = AccountManager()
     if request_next:
         notifier.set_stats_requested(True)
-        console.print("[bold green]✔ Flag 'stats_requested' set to True! Next runner run will send breakdown.[/bold green]")
+        console.print("[bold green]✔ Flag 'stats_requested' set to True! Next runner run will send minutes breakdown.[/bold green]")
         return
 
     accounts = account_mgr.list_accounts(enabled_only=True)
@@ -602,15 +641,43 @@ def stats_command(no_telegram: bool, request_next: bool) -> None:
         console.print("[yellow]⚠️ No accounts configured.[/yellow]")
         return
 
-    breakdown_msgs = notifier.format_stats_breakdown(accounts)
+    breakdown_msgs = notifier.format_stats_minutes_breakdown(accounts)
     for msg in breakdown_msgs:
         console.print(msg)
 
     if not no_telegram and notifier.is_configured:
         _process_pending_telegram_updates(notifier, account_mgr)
-        notifier.send_stats_breakdown(accounts)
+        notifier.send_stats_minutes_breakdown(accounts)
         notifier.clear_stats_requested()
-        console.print("[bold green]✔ Account stats breakdown sent to Telegram![/bold green]")
+        console.print("[bold green]✔ Account stats minutes breakdown sent to Telegram![/bold green]")
+
+
+@cli.command("stats-coins")
+@click.option("--no-telegram", is_flag=True, help="Do not send stats report to Telegram.")
+@click.option("--request-next", is_flag=True, help="Flag stats coins to be sent on next runner execution.")
+def stats_coins_command(no_telegram: bool, request_next: bool) -> None:
+    """Display individual account exact coin balances and manage stats_coins request flag."""
+    notifier = TelegramNotifier()
+    account_mgr = AccountManager()
+    if request_next:
+        notifier.set_stats_coins_requested(True)
+        console.print("[bold green]✔ Flag 'stats_coins_requested' set to True! Next runner run will send coin breakdown.[/bold green]")
+        return
+
+    accounts = account_mgr.list_accounts(enabled_only=True)
+    if not accounts:
+        console.print("[yellow]⚠️ No accounts configured.[/yellow]")
+        return
+
+    breakdown_msgs = notifier.format_stats_coins_breakdown(accounts)
+    for msg in breakdown_msgs:
+        console.print(msg)
+
+    if not no_telegram and notifier.is_configured:
+        _process_pending_telegram_updates(notifier, account_mgr)
+        notifier.send_stats_coins_breakdown(accounts)
+        notifier.clear_stats_coins_requested()
+        console.print("[bold green]✔ Account coin stats breakdown sent to Telegram![/bold green]")
 
 
 @cli.command("boost")
@@ -660,8 +727,12 @@ def boost_command(
             notifier.send_raw_message(msg)
             if notifier.is_stats_requested():
                 all_accounts = account_mgr.list_accounts(enabled_only=False)
-                notifier.send_stats_breakdown(all_accounts or accounts)
+                notifier.send_stats_minutes_breakdown(all_accounts or accounts)
                 notifier.clear_stats_requested()
+            if notifier.is_stats_coins_requested():
+                all_accounts = account_mgr.list_accounts(enabled_only=False)
+                notifier.send_stats_coins_breakdown(all_accounts or accounts)
+                notifier.clear_stats_coins_requested()
 
     eligible = [a for a in accounts if (a.balance or 0) >= cost]
     console.print(
@@ -842,6 +913,9 @@ def daemon_command(interval: int, dry_run: bool) -> None:
     """Run continuous autonomous daemon: claims every N hours AND responds to Telegram bot."""
     _run_supervisor(claim_interval_hours=interval, dry_run=dry_run, listen_only=False)
 
+
+cli.add_command(stats_coins_command, name="stats_coins")
+cli.add_command(stats_coins_command, name="coins")
 
 if __name__ == "__main__":
     cli()
