@@ -13,6 +13,7 @@ on:
           - run
           - summary
           - stats
+          - stats-coins
           - goal
           - boost
         default: run
@@ -111,6 +112,8 @@ jobs:
             python cli.py summary
           elif [ "$ACTION" = "stats" ]; then
             python cli.py stats
+          elif [ "$ACTION" = "stats-coins" ] || [ "$ACTION" = "stats_coins" ]; then
+            python cli.py stats-coins
           elif [ "$ACTION" = "boost" ]; then
             python cli.py boost --type mini $DRY_RUN_FLAG
           else
