@@ -620,16 +620,18 @@ class TelegramNotifier:
             date_claim_line = f"📅 <b>Награда за {cycle_display}:</b> ⚠️ Забрана частично ({claimed_today_count}/{total_accounts})"
 
         # Accounts that dropped 50+ coins from the crate
-        dropped_50_plus = []
+        dropped_50_plus_count = 0
+        dropped_150_plus = []
         for c in contexts:
             raw_earned = c.coins_earned if (isinstance(c.coins_earned, (int, float)) and c.coins_earned > 0) else (c.last_reward_coins or 0)
             earned = int(raw_earned) if isinstance(raw_earned, (int, float)) else 0
             if earned >= 50:
-                dropped_50_plus.append((c.username, earned))
+                dropped_50_plus_count += 1
+            if earned >= 150:
+                dropped_150_plus.append((c.username, earned))
 
-        if dropped_50_plus:
-            dropped_details = ", ".join(f"<code>{html.escape(str(u))}</code> (+{amt})" for u, amt in dropped_50_plus)
-            drop_50_line = f"🎁 <b>Сегодня выпало 50+:</b> {len(dropped_50_plus)} ({dropped_details})"
+        if dropped_50_plus_count > 0:
+            drop_50_line = f"🎁 <b>Сегодня выпало 50+:</b> {dropped_50_plus_count} акк."
         else:
             drop_50_line = "🎁 <b>Сегодня выпало 50+:</b> 0"
 
@@ -658,10 +660,10 @@ class TelegramNotifier:
 
         jackpot_lines: List[str] = []
         if jackpot_accs:
-            jp_details = ", ".join(f"<code>{html.escape(str(u))}</code> ({s} дн.)" for u, s in jackpot_accs[:5])
-            if len(jackpot_accs) > 5:
-                jp_details += f" и ещё {len(jackpot_accs) - 5}"
-            jackpot_lines.append(f"🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b> {len(jackpot_accs)} акк. ({jp_details})")
+            jackpot_lines.append(f"🎰 <b>Сегодня джекпот:</b> {len(jackpot_accs)} акк.")
+        if dropped_150_plus:
+            dropped_150_details = ", ".join(f"<code>{html.escape(str(u))}</code> (+{amt})" for u, amt in dropped_150_plus)
+            jackpot_lines.append(f"💥 <b>Выпало 150+:</b> {len(dropped_150_plus)} ({dropped_150_details})")
 
         # Next reset timing and next crate display
         rem_str = self.format_time_remaining(next_reset_ts, now_dt=server_now_dt)
@@ -672,11 +674,22 @@ class TelegramNotifier:
         else:
             next_crate_line = f"⏳ <b>До следующего кейса:</b> {rem_str}"
 
-        # Error line
-        if failed_count == 0:
-            error_line = "✔ <b>Ошибки:</b> 0 (всё чётко)"
+        # Status / Error line
+        if claimed_today_count == total_accounts and total_accounts > 0:
+            if failed_count == 0:
+                error_line = "✔ <b>Ошибки:</b> 0 (всё чётко)"
+            else:
+                error_line = f"⚠️ <b>Ошибки:</b> {failed_count} акк."
+        elif claimed_today_count == 0:
+            if failed_count == 0:
+                error_line = f"⏳ <b>Статус:</b> Сбор ещё не запускался (доступно 0/{total_accounts})"
+            else:
+                error_line = f"❌ <b>Ошибки:</b> {failed_count} акк. (сбор не удался)"
         else:
-            error_line = f"❌ <b>Ошибки:</b> {failed_count} акк."
+            if failed_count == 0:
+                error_line = f"⚠️ <b>Сбор:</b> Частично ({claimed_today_count}/{total_accounts})"
+            else:
+                error_line = f"❌ <b>Ошибки:</b> {failed_count} акк. (собрано {claimed_today_count}/{total_accounts})"
 
         # Assemble compact message matching Screenshot 2 exactly
         msg_parts = [

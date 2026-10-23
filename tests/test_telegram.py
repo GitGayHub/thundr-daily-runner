@@ -817,9 +817,8 @@ def test_telegram_7_day_jackpot_in_summary_report():
     )
 
     report = notifier.format_summary_report([c1, c2, c3])
-    assert "🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b> 2 акк." in report
-    assert "winner1" in report
-    assert "winner2" in report
+    assert "🎰 <b>Сегодня джекпот:</b> 2 акк." in report
+    assert "🎁 <b>Сегодня выпало 50+:</b> 2 акк." in report
     assert "В среднем на 1 аккаунт:</b> 90.0 монет (0.7 мин)" in report
 
     # Day 6 case should NOT add tomorrow jackpot line
@@ -1048,8 +1047,7 @@ def test_format_summary_report_dual_jackpot_both_displayed():
     )
 
     report = notifier.format_summary_report([c7, c6, c2])
-    assert "🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b>" in report
-    assert "jackpot_user" in report
+    assert "🎰 <b>Сегодня джекпот:</b> 1 акк." in report
     assert "Завтра день джекпота" not in report
 
 
@@ -1095,6 +1093,71 @@ def test_handle_command_extended_singular_aliases():
 
         reply3 = notifier.handle_command("/монета")
         assert "Запрос на подробную статистику по монетам" in reply3
+
+
+def test_summary_report_150_plus_callout_and_short_50_plus():
+    """Verify 50+ is concise (only count), 150+ lists accounts, jackpot is concise, and 0 claimed is not 'всё чётко'."""
+    notifier = TelegramNotifier()
+
+    # Case 1: uncollected accounts (0 claimed today)
+    ctx_unclaimed = [
+        StateMachineContext(
+            username=f"acc_{i}",
+            current_state=CrateState.READY,
+            initial_balance=100,
+            status=DailyCrateStatus(available=True, coin_balance=100, last_claimed_on="2026-10-22", next_reset_at="2026-10-24T00:00:00Z"),
+        )
+        for i in range(10)
+    ]
+    report_unclaimed = notifier.format_summary_report(ctx_unclaimed)
+    assert "Награда за 23.10:</b> ⏳ Ещё не забрана (0/10 — доступна!)" in report_unclaimed
+    assert "Сбор ещё не запускался" in report_unclaimed
+    assert "всё чётко" not in report_unclaimed
+
+    # Case 2: Claimed accounts with 50+ and 150+ jackpot drops
+    c1 = StateMachineContext(
+        username="lucky1",
+        current_state=CrateState.CLAIMED,
+        coins_earned=150,
+        final_balance=250,
+        status=DailyCrateStatus(streak=7, last_claimed_on="2026-10-23", next_reset_at="2026-10-24T00:00:00Z"),
+    )
+    c2 = StateMachineContext(
+        username="lucky2",
+        current_state=CrateState.CLAIMED,
+        coins_earned=150,
+        final_balance=300,
+        status=DailyCrateStatus(streak=14, last_claimed_on="2026-10-23", next_reset_at="2026-10-24T00:00:00Z"),
+    )
+    c3 = StateMachineContext(
+        username="modest3",
+        current_state=CrateState.CLAIMED,
+        coins_earned=50,
+        final_balance=150,
+        status=DailyCrateStatus(streak=3, last_claimed_on="2026-10-23", next_reset_at="2026-10-24T00:00:00Z"),
+    )
+    c4 = StateMachineContext(
+        username="regular4",
+        current_state=CrateState.CLAIMED,
+        coins_earned=25,
+        final_balance=75,
+        status=DailyCrateStatus(streak=2, last_claimed_on="2026-10-23", next_reset_at="2026-10-24T00:00:00Z"),
+    )
+    report_claimed = notifier.format_summary_report([c1, c2, c3, c4])
+
+    # Status must say 'всё чётко' because all 4/4 were claimed
+    assert "Награда за 23.10:</b> ✅ Забрана со всех (4/4)" in report_claimed
+    assert "✔ <b>Ошибки:</b> 0 (всё чётко)" in report_claimed
+
+    # 50+ must be concise (count only, NO usernames listed)
+    assert "🎁 <b>Сегодня выпало 50+:</b> 3 акк." in report_claimed
+    assert "lucky1 (+150)" not in report_claimed.split("Сегодня выпало 50+:")[1].split("\n")[0]
+
+    # Jackpot count must be concise
+    assert "🎰 <b>Сегодня джекпот:</b> 2 акк." in report_claimed
+
+    # 150+ must list the specific accounts and amounts
+    assert "💥 <b>Выпало 150+:</b> 2 (<code>lucky1</code> (+150), <code>lucky2</code> (+150))" in report_claimed
 
 
 
