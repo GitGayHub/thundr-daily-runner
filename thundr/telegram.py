@@ -1148,10 +1148,10 @@ class TelegramNotifier:
 
             return (
                 f"⚡ <b>THUNDR BOOST STORE — МАГАЗИН БУСТОВ</b>\n\n"
-                f"• <b>Mini Boost:</b> 100 монет (1 час)\n"
-                f"• <b>Small Boost:</b> 450 монет (10 часов)\n"
-                f"• <b>Normal Boost:</b> 1000 монет (30 часов)\n"
-                f"• <b>Super Boost:</b> 2100 монет (60 часов)\n\n"
+                f"• <b>Mini Boost:</b> 100 монет (1 мин)\n"
+                f"• <b>Small Boost:</b> 450 монет (10 мин)\n"
+                f"• <b>Normal Boost:</b> 1000 монет (30 мин)\n"
+                f"• <b>Super Boost:</b> 2100 монет (1 час / 60 мин)\n\n"
                 f"💎 Аккаунтов с балансом >= 100 монет (Mini): <b>{ready_mini}</b>\n"
                 f"👤 Готовы к бусту: {eligible_str}\n\n"
                 f"💡 <i>Для покупки отправьте:</i> <code>/boost buy &lt;логин&gt; [mini]</code>\n\n"
@@ -1191,19 +1191,33 @@ class TelegramNotifier:
             )
 
             # Check jackpot status
-            jackpot_users = [
-                a.username for a in accounts
-                if getattr(getattr(a, "status", None), "streak", 0) and a.status.streak % 7 == 0
-            ]
-            near_jackpot_users = [
-                a.username for a in accounts
-                if getattr(getattr(a, "status", None), "streak", 0) and a.status.streak % 7 == 6
-            ]
+            jackpot_users = []
+            near_jackpot_users = []
+            for a in accounts:
+                st = getattr(a, "status", None) or getattr(a, "last_status", None)
+                if isinstance(a, dict):
+                    st = a.get("status") or a.get("last_status")
+                streak = getattr(st, "streak", None) if st else None
+                if streak is None and isinstance(st, dict):
+                    streak = st.get("streak")
+                if streak is None and isinstance(a, dict):
+                    streak = a.get("streak")
+                try:
+                    s_val = int(streak) if streak is not None else 0
+                except (ValueError, TypeError):
+                    s_val = 0
+                u_name = getattr(a, "username", "") if not isinstance(a, dict) else a.get("username", "")
+                if s_val > 0:
+                    if s_val % 7 == 0:
+                        jackpot_users.append(u_name)
+                    elif s_val % 7 == 6:
+                        near_jackpot_users.append(u_name)
+
             if jackpot_users:
-                jp_str = ", ".join(f"<code>{html.escape(u)}</code>" for u in jackpot_users[:5])
+                jp_str = ", ".join(f"<code>{html.escape(str(u))}</code>" for u in jackpot_users[:5])
                 msg += f"\n🎰 <b>Сегодня день джекпота (7-й день):</b> {jp_str}\n"
-            elif near_jackpot_users:
-                njp_str = ", ".join(f"<code>{html.escape(u)}</code>" for u in near_jackpot_users[:5])
+            if near_jackpot_users:
+                njp_str = ", ".join(f"<code>{html.escape(str(u))}</code>" for u in near_jackpot_users[:5])
                 msg += f"\n🎰 <b>Завтра день джекпота:</b> {njp_str}\n"
 
             if ready_accs:
@@ -1218,7 +1232,9 @@ class TelegramNotifier:
             or base_cmd.startswith("/статс_монеты")
             or base_cmd.startswith("/статс-монеты")
             or base_cmd.startswith("/coins")
+            or base_cmd.startswith("/coin")
             or base_cmd.startswith("/монеты")
+            or base_cmd.startswith("/монета")
         ):
             self.set_stats_coins_requested(True)
             return (
@@ -1229,7 +1245,9 @@ class TelegramNotifier:
 
         elif (
             base_cmd.startswith("/stats")
+            or base_cmd.startswith("/stat")
             or base_cmd.startswith("/статс")
+            or base_cmd.startswith("/стат")
             or base_cmd.startswith("/статистика")
         ):
             self.set_stats_requested(True)

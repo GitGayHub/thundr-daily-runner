@@ -883,6 +883,14 @@ def _run_supervisor(
                             reply = notifier.handle_command(text, accounts=accounts, client=client)
                             if reply:
                                 notifier.send_raw_message(reply)
+                            if notifier.is_stats_requested():
+                                all_configured = account_mgr.list_accounts(enabled_only=False)
+                                notifier.send_stats_minutes_breakdown(all_configured or accounts)
+                                notifier.clear_stats_requested()
+                            if notifier.is_stats_coins_requested():
+                                all_configured = account_mgr.list_accounts(enabled_only=False)
+                                notifier.send_stats_coins_breakdown(all_configured or accounts)
+                                notifier.clear_stats_coins_requested()
                 except Exception as tg_err:
                     logger.debug(f"Error polling Telegram updates: {tg_err}")
 

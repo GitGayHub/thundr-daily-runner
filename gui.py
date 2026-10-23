@@ -42,6 +42,7 @@ from thundr import (
     ThundrApiClient,
     ThundrBrowserClient,
     ThundrClient,
+    format_streak_info,
 )
 from thundr.state_machine import CrateState
 
@@ -462,7 +463,8 @@ class ThundrGUI(ctk.CTk):
                 last_rew = self.storage_mgr.get_last_reward_for_user(acc.username)
             rew_str = f"+{last_rew} монет" if last_rew else "нет данных"
 
-            stats_text = f"💰 Баланс: {bal} coins   |   🔥 Серия: {streak} дн.   |   🎁 В прошлый раз: {rew_str}"
+            st_text = format_streak_info(streak)
+            stats_text = f"💰 Баланс: {bal} coins   |   🔥 Серия: {st_text}   |   🎁 В прошлый раз: {rew_str}"
             lbl_stats = ctk.CTkLabel(
                 stats_col,
                 text=stats_text,

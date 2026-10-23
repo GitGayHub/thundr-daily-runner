@@ -1005,6 +1005,97 @@ def test_send_stats_minutes_and_coins_breakdown():
         assert mock_send.call_count == 1
 
 
+def test_format_streak_info_edge_cases():
+    """Verify format_streak_info handles types, strings, negatives, and modulo 7 cycles."""
+    assert format_streak_info(None) == "0 дн."
+    assert format_streak_info("invalid") == "0 дн."
+    assert format_streak_info(-5) == "0 дн."
+    assert format_streak_info(0) == "0 дн."
+    assert format_streak_info(1) == "1 дн."
+    assert format_streak_info(6) == "6 дн. (завтра джекпот! 🎰)"
+    assert format_streak_info("6") == "6 дн. (завтра джекпот! 🎰)"
+    assert format_streak_info(7) == "7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+    assert format_streak_info("7") == "7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+    assert format_streak_info(13) == "13 дн. (завтра джекпот! 🎰)"
+    assert format_streak_info(14) == "14 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+    assert format_streak_info(21) == "21 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+
+
+def test_format_summary_report_dual_jackpot_both_displayed():
+    """Verify format_summary_report shows BOTH day 7 and day 6 jackpots simultaneously if present."""
+    notifier = TelegramNotifier()
+    c7 = StateMachineContext(
+        username="jackpot_user",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=100,
+        status=DailyCrateStatus(streak=7),
+    )
+    c6 = StateMachineContext(
+        username="near_user",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=50,
+        status=DailyCrateStatus(streak=6),
+    )
+    c2 = StateMachineContext(
+        username="regular_user",
+        current_state=CrateState.COOLDOWN,
+        initial_balance=20,
+        status=DailyCrateStatus(streak=2),
+    )
+
+    report = notifier.format_summary_report([c7, c6, c2])
+    assert "🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b>" in report
+    assert "jackpot_user" in report
+    assert "🎰 <b>Завтра день джекпота:</b>" in report
+    assert "near_user" in report
+
+
+def test_status_command_with_dict_accounts_and_dual_jackpots():
+    """Verify /status correctly parses streaks from dicts and displays both jackpot lines."""
+    notifier = TelegramNotifier()
+    accs = [
+        {"username": "acc_jp", "balance": 100, "status": {"streak": 7, "available": True}},
+        {"username": "acc_near", "balance": 50, "status": {"streak": 6, "available": False}},
+        {"username": "acc_reg", "balance": 20, "status": {"streak": 3, "available": False}},
+    ]
+    reply = notifier.handle_command("/status", accounts=accs)
+    assert reply is not None
+    assert "Сегодня день джекпота (7-й день)" in reply
+    assert "acc_jp" in reply
+    assert "Завтра день джекпота" in reply
+    assert "acc_near" in reply
+
+
+def test_boost_store_durations_in_telegram():
+    """Verify /boost displays correct minute and hour durations matching store screenshot."""
+    notifier = TelegramNotifier()
+    reply = notifier.handle_command("/boost")
+    assert reply is not None
+    assert "Mini Boost:</b> 100 монет (1 мин)" in reply
+    assert "Small Boost:</b> 450 монет (10 мин)" in reply
+    assert "Normal Boost:</b> 1000 монет (30 мин)" in reply
+    assert "Super Boost:</b> 2100 монет (1 час / 60 мин)" in reply
+
+
+def test_handle_command_extended_singular_aliases():
+    """Verify singular aliases /stat, /coin, /монета are handled properly."""
+    notifier = TelegramNotifier()
+    with patch.object(notifier, "set_stats_requested") as mock_stats, \
+         patch.object(notifier, "set_stats_coins_requested") as mock_coins:
+
+        reply1 = notifier.handle_command("/stat")
+        assert "Запрос на подробную статистику по всем аккаунтам принят" in reply1
+        assert mock_stats.called
+
+        reply2 = notifier.handle_command("/coin")
+        assert "Запрос на подробную статистику по монетам" in reply2
+        assert mock_coins.called
+
+        reply3 = notifier.handle_command("/монета")
+        assert "Запрос на подробную статистику по монетам" in reply3
+
+
+
 
 
 
