@@ -738,22 +738,22 @@ def test_calculate_boost_minutes():
 
 
 def test_format_streak_info():
-    """Verify streak formatting and 7-day jackpot callouts."""
+    """Verify streak formatting and slot machine replacement on 7-day jackpot."""
     assert format_streak_info(None) == "0 дн."
     assert format_streak_info(0) == "0 дн."
     assert format_streak_info(-3) == "0 дн."
-    assert format_streak_info(1) == "1 дн."
-    assert format_streak_info(5) == "5 дн."
-    assert format_streak_info(6) == "6 дн. (завтра джекпот! 🎰)"
-    assert format_streak_info(7) == "7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
-    assert format_streak_info(8) == "8 дн."
-    assert format_streak_info(13) == "13 дн. (завтра джекпот! 🎰)"
-    assert format_streak_info(14) == "14 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
-    assert format_streak_info(21) == "21 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+    assert format_streak_info(1) == "🔥 1 дн."
+    assert format_streak_info(5) == "🔥 5 дн."
+    assert format_streak_info(6) == "🔥 6 дн."
+    assert format_streak_info(7) == "🎰 7 дн."
+    assert format_streak_info(8) == "🔥 8 дн."
+    assert format_streak_info(13) == "🔥 13 дн."
+    assert format_streak_info(14) == "🎰 14 дн."
+    assert format_streak_info(21) == "🎰 21 дн."
 
 
 def test_telegram_7_day_jackpot_in_single_run():
-    """Verify notify_single_run highlights jackpot on day 7 and tomorrow on day 6."""
+    """Verify notify_single_run swaps fire icon with slot machine on day 7 without tomorrow jackpot text."""
     notifier = TelegramNotifier(bot_token="tok", chat_id="123", mode="all")
 
     # Day 7 Claimed
@@ -771,7 +771,7 @@ def test_telegram_7_day_jackpot_in_single_run():
 
         notifier.notify_single_run(ctx_7)
         text = mock_post.call_args[1]["json"]["text"]
-        assert "7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)" in text
+        assert "🎰 <b>Серия (Streak):</b> 7 дн." in text
 
     # Day 6 Cooldown
     ctx_6 = StateMachineContext(
@@ -787,11 +787,12 @@ def test_telegram_7_day_jackpot_in_single_run():
 
         notifier.notify_single_run(ctx_6)
         text = mock_post.call_args[1]["json"]["text"]
-        assert "6 дн. (завтра джекпот! 🎰)" in text
+        assert "🔥 <b>Серия (Streak):</b> 6 дн." in text
+        assert "завтра джекпот" not in text
 
 
 def test_telegram_7_day_jackpot_in_summary_report():
-    """Verify format_summary_report highlights accounts on day 7 and day 6."""
+    """Verify format_summary_report highlights accounts on day 7 and omits tomorrow jackpot."""
     notifier = TelegramNotifier(bot_token="tok", chat_id="123")
 
     c1 = StateMachineContext(
@@ -820,7 +821,7 @@ def test_telegram_7_day_jackpot_in_summary_report():
     assert "winner1" in report
     assert "winner2" in report
 
-    # Tomorrow jackpot case
+    # Day 6 case should NOT add tomorrow jackpot line
     c_tmrw = StateMachineContext(
         username="tmrw_guy",
         current_state=CrateState.COOLDOWN,
@@ -828,12 +829,11 @@ def test_telegram_7_day_jackpot_in_summary_report():
         status=DailyCrateStatus(streak=6),
     )
     report_tmrw = notifier.format_summary_report([c_tmrw, c3])
-    assert "🎰 <b>Завтра день джекпота:</b> 1 акк." in report_tmrw
-    assert "tmrw_guy" in report_tmrw
+    assert "Завтра день джекпота" not in report_tmrw
 
 
 def test_telegram_7_day_jackpot_in_status_and_goal():
-    """Verify handle_command highlights jackpot in /status and /goal."""
+    """Verify handle_command highlights jackpot in /status and /goal and omits tomorrow jackpot."""
     notifier = TelegramNotifier(bot_token="tok", chat_id="123")
 
     acc7 = MagicMock()
@@ -845,10 +845,11 @@ def test_telegram_7_day_jackpot_in_status_and_goal():
     res_status = notifier.handle_command("/status", accounts=[acc7])
     assert "🎰 <b>Сегодня день джекпота (7-й день):</b>" in res_status
     assert "jackpot_acc" in res_status
+    assert "Завтра день джекпота" not in res_status
 
     # /goal
     res_goal = notifier.handle_command("/goal jackpot_acc", accounts=[acc7])
-    assert "🔥 Стрик: <b>7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)</b>" in res_goal
+    assert "🎰 Стрик: <b>7 дн.</b>" in res_goal
 
     # Day 6 in /status
     acc6 = MagicMock()
@@ -857,8 +858,7 @@ def test_telegram_7_day_jackpot_in_status_and_goal():
     acc6.status = DailyCrateStatus(available=False, streak=6)
 
     res_status6 = notifier.handle_command("/status", accounts=[acc6])
-    assert "🎰 <b>Завтра день джекпота:</b>" in res_status6
-    assert "day6_acc" in res_status6
+    assert "Завтра день джекпота" not in res_status6
 
 
 def test_format_stats_minutes_breakdown():
@@ -883,10 +883,11 @@ def test_format_stats_minutes_breakdown():
     assert "💰 1430 монет" in msg
 
     # Check account lines matching prompt specification:
-    assert "• <code>gamasek1</code>: <b>0</b> мин (25 монет)" in msg
-    assert "• <code>gamasek33</code>: <b>1</b> мин (100 монет) 🔥 6 дн. (завтра джекпот!)" in msg
-    assert "• <code>gamasek13</code>: <b>3</b> мин (305 монет) 🔥 7 дн. 🎰 ДЖЕКПОТ!" in msg
-    assert "• <code>gamasek50</code>: <b>30</b> мин (1000 монет) 🔥 14 дн. 🎰 ДЖЕКПОТ!" in msg
+    assert "• <code>gamasek1</code>: <b>0</b> мин (25 монет) 🔥 2 дн." in msg
+    assert "• <code>gamasek33</code>: <b>1</b> мин (100 монет) 🔥 6 дн." in msg
+    assert "• <code>gamasek13</code>: <b>3</b> мин (305 монет) 🎰 7 дн." in msg
+    assert "• <code>gamasek50</code>: <b>30</b> мин (1000 монет) 🎰 14 дн." in msg
+    assert "завтра джекпот" not in msg
 
     # Verify descending ordering: highest minutes at the top
     pos_50 = msg.index("<code>gamasek50</code>")
@@ -937,8 +938,9 @@ def test_format_stats_coins_breakdown():
     assert "ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ" in msg
     assert "Всего аккаунтов: <b>2</b>" in msg
     assert "Общий баланс: <b>55</b> монет" in msg
-    assert "• <code>gamasek1</code>: <b>25</b> монет" in msg
-    assert "• <code>gamasek2</code>: <b>30</b> монет (🔥 7 дн. 🎰 ДЖЕКПОТ!)" in msg
+    assert "• <code>gamasek1</code>: <b>25</b> монет (🔥 2 дн.)" in msg
+    assert "• <code>gamasek2</code>: <b>30</b> монет (🎰 7 дн.)" in msg
+    assert "завтра джекпот" not in msg
 
 
 def test_stats_coins_requested_flag_persistence(tmp_path, monkeypatch):
@@ -1011,18 +1013,18 @@ def test_format_streak_info_edge_cases():
     assert format_streak_info("invalid") == "0 дн."
     assert format_streak_info(-5) == "0 дн."
     assert format_streak_info(0) == "0 дн."
-    assert format_streak_info(1) == "1 дн."
-    assert format_streak_info(6) == "6 дн. (завтра джекпот! 🎰)"
-    assert format_streak_info("6") == "6 дн. (завтра джекпот! 🎰)"
-    assert format_streak_info(7) == "7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
-    assert format_streak_info("7") == "7 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
-    assert format_streak_info(13) == "13 дн. (завтра джекпот! 🎰)"
-    assert format_streak_info(14) == "14 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
-    assert format_streak_info(21) == "21 дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
+    assert format_streak_info(1) == "🔥 1 дн."
+    assert format_streak_info(6) == "🔥 6 дн."
+    assert format_streak_info("6") == "🔥 6 дн."
+    assert format_streak_info(7) == "🎰 7 дн."
+    assert format_streak_info("7") == "🎰 7 дн."
+    assert format_streak_info(13) == "🔥 13 дн."
+    assert format_streak_info(14) == "🎰 14 дн."
+    assert format_streak_info(21) == "🎰 21 дн."
 
 
 def test_format_summary_report_dual_jackpot_both_displayed():
-    """Verify format_summary_report shows BOTH day 7 and day 6 jackpots simultaneously if present."""
+    """Verify format_summary_report shows day 7 jackpot and omits tomorrow jackpot."""
     notifier = TelegramNotifier()
     c7 = StateMachineContext(
         username="jackpot_user",
@@ -1046,12 +1048,11 @@ def test_format_summary_report_dual_jackpot_both_displayed():
     report = notifier.format_summary_report([c7, c6, c2])
     assert "🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b>" in report
     assert "jackpot_user" in report
-    assert "🎰 <b>Завтра день джекпота:</b>" in report
-    assert "near_user" in report
+    assert "Завтра день джекпота" not in report
 
 
 def test_status_command_with_dict_accounts_and_dual_jackpots():
-    """Verify /status correctly parses streaks from dicts and displays both jackpot lines."""
+    """Verify /status correctly parses streaks from dicts and omits tomorrow jackpot."""
     notifier = TelegramNotifier()
     accs = [
         {"username": "acc_jp", "balance": 100, "status": {"streak": 7, "available": True}},
@@ -1062,8 +1063,7 @@ def test_status_command_with_dict_accounts_and_dual_jackpots():
     assert reply is not None
     assert "Сегодня день джекпота (7-й день)" in reply
     assert "acc_jp" in reply
-    assert "Завтра день джекпота" in reply
-    assert "acc_near" in reply
+    assert "Завтра день джекпота" not in reply
 
 
 def test_boost_store_durations_in_telegram():

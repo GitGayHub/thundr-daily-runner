@@ -58,7 +58,7 @@ def calculate_boost_minutes(coins: int) -> int:
 
 
 def format_streak_info(streak: Any) -> str:
-    """Format streak count with 7-day jackpot highlights."""
+    """Format streak count with slot machine icon for 7-day jackpot and fire icon for regular days."""
     if streak is None:
         return "0 дн."
     try:
@@ -67,11 +67,8 @@ def format_streak_info(streak: Any) -> str:
         return "0 дн."
     if streak_int <= 0:
         return "0 дн."
-    if streak_int % 7 == 0:
-        return f"{streak_int} дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
-    if streak_int % 7 == 6:
-        return f"{streak_int} дн. (завтра джекпот! 🎰)"
-    return f"{streak_int} дн."
+    icon = "🎰" if streak_int % 7 == 0 else "🔥"
+    return f"{icon} {streak_int} дн."
 
 
 class TelegramNotifier:
@@ -282,19 +279,19 @@ class TelegramNotifier:
             earned = f"+{ctx.coins_earned}" if ctx.coins_earned > 0 else "0"
             streak_bonus_text = " (Streak Bonus Activated! 🌟)" if ctx.status and ctx.status.streak_bonus else ""
             streak_val = ctx.status.streak if ctx.status else 1
-            streak_str = format_streak_info(streak_val)
+            streak_icon = "🎰" if streak_val % 7 == 0 else "🔥"
             msg = (
                 f"🎁 <b>Thundr — Ежедневная награда получена!</b>\n\n"
                 f"👤 <b>Аккаунт:</b> <code>{safe_user}</code>\n"
                 f"🎉 <b>Выпало:</b> <b>{earned}</b> монет\n"
                 f"💰 <b>Новый баланс:</b> {ctx.final_balance} монет\n"
-                f"🔥 <b>Серия (Streak):</b> {streak_str}{streak_bonus_text}\n"
+                f"{streak_icon} <b>Серия (Streak):</b> {streak_val} дн.{streak_bonus_text}\n"
                 f"⏳ <b>До следующего кейса:</b> {rem_str} (в {reset_time})\n"
                 f"⏱️ <i>Время проверки: {now_str}</i>"
             )
         elif ctx.current_state == CrateState.COOLDOWN:
             streak_val = ctx.status.streak if ctx.status else 0
-            streak_str = format_streak_info(streak_val)
+            streak_icon = "🎰" if streak_val and streak_val % 7 == 0 else "🔥"
             msg = (
                 f"⏳ <b>Thundr — Кейс на перезарядке</b>\n\n"
                 f"👤 <b>Аккаунт:</b> <code>{safe_user}</code>\n"
@@ -302,7 +299,7 @@ class TelegramNotifier:
                 f"🎁 <b>В прошлый раз выпало:</b> <b>{last_rew_str}</b>\n"
                 f"⏳ <b>Осталось до кейса:</b> <b>{rem_str}</b>\n"
                 f"⏰ <b>Будет доступен:</b> {reset_time}\n"
-                f"🔥 <b>Серия (Streak):</b> {streak_str}\n"
+                f"{streak_icon} <b>Серия (Streak):</b> {streak_val} дн.\n"
                 f"⏱️ <i>Время проверки: {now_str}</i>"
             )
         elif ctx.current_state == CrateState.UNCERTAIN:
@@ -639,7 +636,6 @@ class TelegramNotifier:
 
         # Jackpot accounts check
         jackpot_accs = []
-        near_jackpot_accs = []
         for c in contexts:
             st = getattr(c, "status", None)
             streak = getattr(st, "streak", None) if st else None
@@ -651,8 +647,6 @@ class TelegramNotifier:
                 streak = int(streak)
                 if streak % 7 == 0:
                     jackpot_accs.append((c.username, streak))
-                elif streak % 7 == 6:
-                    near_jackpot_accs.append((c.username, streak))
 
         jackpot_lines: List[str] = []
         if jackpot_accs:
@@ -660,11 +654,6 @@ class TelegramNotifier:
             if len(jackpot_accs) > 5:
                 jp_details += f" и ещё {len(jackpot_accs) - 5}"
             jackpot_lines.append(f"🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b> {len(jackpot_accs)} акк. ({jp_details})")
-        if near_jackpot_accs:
-            njp_details = ", ".join(f"<code>{html.escape(str(u))}</code>" for u, _ in near_jackpot_accs[:5])
-            if len(near_jackpot_accs) > 5:
-                njp_details += f" и ещё {len(near_jackpot_accs) - 5}"
-            jackpot_lines.append(f"🎰 <b>Завтра день джекпота:</b> {len(near_jackpot_accs)} акк. ({njp_details})")
 
         # Next reset timing and next crate display
         rem_str = self.format_time_remaining(next_reset_ts, now_dt=server_now_dt)
@@ -806,10 +795,8 @@ class TelegramNotifier:
             mins = calculate_boost_minutes(bal)
             streak_extra = ""
             if streak is not None and streak > 0:
-                if streak % 7 == 0:
-                    streak_extra = f" 🔥 {streak} дн. 🎰 ДЖЕКПОТ!"
-                elif streak % 7 == 6:
-                    streak_extra = f" 🔥 {streak} дн. (завтра джекпот!)"
+                icon = "🎰" if streak % 7 == 0 else "🔥"
+                streak_extra = f" {icon} {streak} дн."
             lines.append(f"• <code>{safe_user}</code>: <b>{mins}</b> мин ({bal} монет){streak_extra}")
 
         env_label = self.get_execution_environment_label()
@@ -885,10 +872,8 @@ class TelegramNotifier:
             safe_user = html.escape(str(username))
             streak_extra = ""
             if streak is not None and streak > 0:
-                if streak % 7 == 0:
-                    streak_extra = f" (🔥 {streak} дн. 🎰 ДЖЕКПОТ!)"
-                elif streak % 7 == 6:
-                    streak_extra = f" (🔥 {streak} дн. — завтра джекпот!)"
+                icon = "🎰" if streak % 7 == 0 else "🔥"
+                streak_extra = f" ({icon} {streak} дн.)"
             lines.append(f"• <code>{safe_user}</code>: <b>{bal}</b> монет{streak_extra}")
 
         env_label = self.get_execution_environment_label()
@@ -1048,11 +1033,11 @@ class TelegramNotifier:
                     needed = target - bal
                     res_line = f"⏳ До цели осталось <b>{needed}</b> монет (баланс: <b>{bal}/{target}</b>, {pct:.0f}%)"
                 streak_val = getattr(getattr(specific_acc, "status", None), "streak", 0)
-                streak_str = format_streak_info(streak_val)
+                streak_icon = "🎰" if streak_val and streak_val % 7 == 0 else "🔥"
                 return (
                     f"🎯 <b>THUNDR GOAL — {html.escape(specific_acc.username)}</b>\n\n"
                     f"{res_line}\n"
-                    f"🔥 Стрик: <b>{streak_str}</b>\n\n"
+                    f"{streak_icon} Стрик: <b>{streak_val or 0} дн.</b>\n\n"
                     f"{self.get_execution_environment_label()}"
                 )
 
@@ -1192,7 +1177,6 @@ class TelegramNotifier:
 
             # Check jackpot status
             jackpot_users = []
-            near_jackpot_users = []
             for a in accounts:
                 st = getattr(a, "status", None) or getattr(a, "last_status", None)
                 if isinstance(a, dict):
@@ -1207,18 +1191,12 @@ class TelegramNotifier:
                 except (ValueError, TypeError):
                     s_val = 0
                 u_name = getattr(a, "username", "") if not isinstance(a, dict) else a.get("username", "")
-                if s_val > 0:
-                    if s_val % 7 == 0:
-                        jackpot_users.append(u_name)
-                    elif s_val % 7 == 6:
-                        near_jackpot_users.append(u_name)
+                if s_val > 0 and s_val % 7 == 0:
+                    jackpot_users.append(u_name)
 
             if jackpot_users:
                 jp_str = ", ".join(f"<code>{html.escape(str(u))}</code>" for u in jackpot_users[:5])
                 msg += f"\n🎰 <b>Сегодня день джекпота (7-й день):</b> {jp_str}\n"
-            if near_jackpot_users:
-                njp_str = ", ".join(f"<code>{html.escape(str(u))}</code>" for u in near_jackpot_users[:5])
-                msg += f"\n🎰 <b>Завтра день джекпота:</b> {njp_str}\n"
 
             if ready_accs:
                 names = ", ".join(f"<code>{html.escape(a.username)}</code>" for a in ready_accs[:10])

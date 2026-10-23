@@ -464,7 +464,7 @@ class ThundrGUI(ctk.CTk):
             rew_str = f"+{last_rew} монет" if last_rew else "нет данных"
 
             st_text = format_streak_info(streak)
-            stats_text = f"💰 Баланс: {bal} coins   |   🔥 Серия: {st_text}   |   🎁 В прошлый раз: {rew_str}"
+            stats_text = f"💰 Баланс: {bal} coins   |   Серия: {st_text}   |   🎁 В прошлый раз: {rew_str}"
             lbl_stats = ctk.CTkLabel(
                 stats_col,
                 text=stats_text,

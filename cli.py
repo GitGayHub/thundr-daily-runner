@@ -248,9 +248,7 @@ def _execute_rewards(
 
         st_val = r.status.streak if r.status else 0
         if st_val > 0 and st_val % 7 == 0:
-            st_disp = f"[bold green]{st_val} 🎰 JACKPOT![/bold green]"
-        elif st_val > 0 and st_val % 7 == 6:
-            st_disp = f"{st_val} (tmrw 🎰)"
+            st_disp = f"[bold green]{st_val} 🎰[/bold green]"
         else:
             st_disp = str(st_val)
 
@@ -362,8 +360,6 @@ def check_command(account_arg: Optional[str], account_opt: Optional[str]) -> Non
             st_val = status.streak or 0
             if st_val > 0 and st_val % 7 == 0:
                 streak_disp = f"[bold green]{st_val} 🎰[/bold green]"
-            elif st_val > 0 and st_val % 7 == 6:
-                streak_disp = f"{st_val} (tmrw 🎰)"
             else:
                 streak_disp = str(st_val)
 
