@@ -638,11 +638,16 @@ class TelegramNotifier:
         # Top account by balance
         best_ctx = max(
             contexts,
-            key=lambda c: (int(c.final_balance or c.initial_balance or 0) if isinstance(c.final_balance or c.initial_balance or 0, (int, float)) else 0)
+            key=lambda c: (
+                int(getattr(c, "final_balance", None) or getattr(c, "initial_balance", None) or getattr(c, "balance", None) or 0)
+                if isinstance(getattr(c, "final_balance", None) or getattr(c, "initial_balance", None) or getattr(c, "balance", None) or 0, (int, float))
+                else 0
+            )
         ) if contexts else None
         best_user = str(best_ctx.username) if best_ctx else "N/A"
-        raw_bal = (best_ctx.final_balance or best_ctx.initial_balance or 0) if best_ctx else 0
+        raw_bal = (getattr(best_ctx, "final_balance", None) or getattr(best_ctx, "initial_balance", None) or getattr(best_ctx, "balance", None) or 0) if best_ctx else 0
         best_bal = int(raw_bal) if isinstance(raw_bal, (int, float)) else 0
+        best_mins = calculate_boost_minutes(best_bal)
 
         # Jackpot accounts check
         jackpot_accs = []
@@ -702,7 +707,7 @@ class TelegramNotifier:
             f"💰 <b>Общий баланс:</b> {total_balance} монет" + (f" (+{total_coins_earned})" if total_coins_earned > 0 else ""),
             f"📊 <b>В среднем на 1 аккаунт:</b> {avg_balance:.1f} монет ({avg_minutes:.1f} мин)",
             drop_50_line,
-            f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет)",
+            f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет, {best_mins} мин)",
         ]
         if jackpot_lines:
             msg_parts.extend(jackpot_lines)

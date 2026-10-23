@@ -820,6 +820,7 @@ def test_telegram_7_day_jackpot_in_summary_report():
     assert "🎰 <b>Сегодня джекпот:</b> 2 акк." in report
     assert "🎁 <b>Сегодня выпало 50+:</b> 2 акк." in report
     assert "В среднем на 1 аккаунт:</b> 90.0 монет (0.7 мин)" in report
+    assert "🏆 <b>Топ-аккаунт:</b> <code>winner2</code> (120 монет, 1 мин)" in report
 
     # Day 6 case should NOT add tomorrow jackpot line
     c_tmrw = StateMachineContext(
@@ -1158,6 +1159,7 @@ def test_summary_report_150_plus_callout_and_short_50_plus():
 
     # 150+ must list the specific accounts and amounts
     assert "💥 <b>Выпало 150+:</b> 2 (<code>lucky1</code> (+150), <code>lucky2</code> (+150))" in report_claimed
+    assert "🏆 <b>Топ-аккаунт:</b> <code>lucky2</code> (300 монет, 3 мин)" in report_claimed
 
 
 
