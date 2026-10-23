@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -56,11 +57,16 @@ def calculate_boost_minutes(coins: int) -> int:
     return dp[coins]
 
 
-def format_streak_info(streak: Optional[int]) -> str:
+def format_streak_info(streak: Any) -> str:
     """Format streak count with 7-day jackpot highlights."""
-    if streak is None or not isinstance(streak, (int, float)) or streak <= 0:
+    if streak is None:
         return "0 дн."
-    streak_int = int(streak)
+    try:
+        streak_int = int(streak)
+    except (ValueError, TypeError):
+        return "0 дн."
+    if streak_int <= 0:
+        return "0 дн."
     if streak_int % 7 == 0:
         return f"{streak_int} дн. (🎰 ДЕНЬ ДЖЕКПОТА!)"
     if streak_int % 7 == 6:
@@ -648,17 +654,17 @@ class TelegramNotifier:
                 elif streak % 7 == 6:
                     near_jackpot_accs.append((c.username, streak))
 
-        jackpot_line = None
+        jackpot_lines: List[str] = []
         if jackpot_accs:
             jp_details = ", ".join(f"<code>{html.escape(str(u))}</code> ({s} дн.)" for u, s in jackpot_accs[:5])
             if len(jackpot_accs) > 5:
                 jp_details += f" и ещё {len(jackpot_accs) - 5}"
-            jackpot_line = f"🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b> {len(jackpot_accs)} акк. ({jp_details})"
-        elif near_jackpot_accs:
+            jackpot_lines.append(f"🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b> {len(jackpot_accs)} акк. ({jp_details})")
+        if near_jackpot_accs:
             njp_details = ", ".join(f"<code>{html.escape(str(u))}</code>" for u, _ in near_jackpot_accs[:5])
             if len(near_jackpot_accs) > 5:
                 njp_details += f" и ещё {len(near_jackpot_accs) - 5}"
-            jackpot_line = f"🎰 <b>Завтра день джекпота:</b> {len(near_jackpot_accs)} акк. ({njp_details})"
+            jackpot_lines.append(f"🎰 <b>Завтра день джекпота:</b> {len(near_jackpot_accs)} акк. ({njp_details})")
 
         # Next reset timing and next crate display
         rem_str = self.format_time_remaining(next_reset_ts, now_dt=server_now_dt)
@@ -688,8 +694,8 @@ class TelegramNotifier:
             drop_50_line,
             f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет)",
         ]
-        if jackpot_line:
-            msg_parts.append(jackpot_line)
+        if jackpot_lines:
+            msg_parts.extend(jackpot_lines)
         msg_parts.extend([
             f"━━━━━━━━━━━━━━━━━━━",
             next_crate_line,
@@ -780,6 +786,15 @@ class TelegramNotifier:
                 "Нет данных об аккаунтах.\n\n"
                 f"{self.get_execution_environment_label()}"
             ]
+
+        # Sort accounts descending by obtainable boost minutes, then coins, then natural username
+        def minutes_sort_key(entry):
+            u, b, s = entry
+            mins = calculate_boost_minutes(b)
+            user_parts = [int(c) if c.isdigit() else c.lower() for c in re.split(r"(\d+)", str(u))]
+            return (-mins, -b, user_parts)
+
+        accounts_data = sorted(accounts_data, key=minutes_sort_key)
 
         total_accounts = len(accounts_data)
         total_balance = sum(b for _, b, _ in accounts_data)

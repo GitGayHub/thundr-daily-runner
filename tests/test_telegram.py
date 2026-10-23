@@ -888,6 +888,39 @@ def test_format_stats_minutes_breakdown():
     assert "• <code>gamasek13</code>: <b>3</b> мин (305 монет) 🔥 7 дн. 🎰 ДЖЕКПОТ!" in msg
     assert "• <code>gamasek50</code>: <b>30</b> мин (1000 монет) 🔥 14 дн. 🎰 ДЖЕКПОТ!" in msg
 
+    # Verify descending ordering: highest minutes at the top
+    pos_50 = msg.index("<code>gamasek50</code>")
+    pos_13 = msg.index("<code>gamasek13</code>")
+    pos_33 = msg.index("<code>gamasek33</code>")
+    pos_1 = msg.index("<code>gamasek1</code>")
+    assert pos_50 < pos_13 < pos_33 < pos_1
+
+
+def test_format_stats_minutes_breakdown_550_coins_optimal_sort():
+    """Verify 550 coins calculates to 11 mins (450->10m + 100->1m) and sorts descending."""
+    notifier = TelegramNotifier()
+    accs = [
+        {"username": "acc_zero", "balance": 50},
+        {"username": "acc_550", "balance": 550},
+        {"username": "acc_100", "balance": 100},
+        {"username": "acc_1000", "balance": 1000},
+    ]
+
+    messages = notifier.format_stats_minutes_breakdown(accs)
+    msg = messages[0]
+    assert "• <code>acc_1000</code>: <b>30</b> мин (1000 монет)" in msg
+    assert "• <code>acc_550</code>: <b>11</b> мин (550 монет)" in msg
+    assert "• <code>acc_100</code>: <b>1</b> мин (100 монет)" in msg
+    assert "• <code>acc_zero</code>: <b>0</b> мин (50 монет)" in msg
+
+    # Order must be strictly descending by minutes: acc_1000 (30m) -> acc_550 (11m) -> acc_100 (1m) -> acc_zero (0m)
+    assert (
+        msg.index("<code>acc_1000</code>")
+        < msg.index("<code>acc_550</code>")
+        < msg.index("<code>acc_100</code>")
+        < msg.index("<code>acc_zero</code>")
+    )
+
 
 def test_format_stats_coins_breakdown():
     """Verify format_stats_coins_breakdown outputs exact coins and streak callout."""
