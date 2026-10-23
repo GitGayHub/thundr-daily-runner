@@ -820,6 +820,7 @@ def test_telegram_7_day_jackpot_in_summary_report():
     assert "🎰 <b>СЕГОДНЯ ДЕНЬ ДЖЕКПОТА (7 дн.):</b> 2 акк." in report
     assert "winner1" in report
     assert "winner2" in report
+    assert "В среднем на 1 аккаунт:</b> 90.0 монет (0.7 мин)" in report
 
     # Day 6 case should NOT add tomorrow jackpot line
     c_tmrw = StateMachineContext(
@@ -881,6 +882,7 @@ def test_format_stats_minutes_breakdown():
     # Minutes: 0 + 1 + 3 + 30 = 34
     assert "⏱️ Всего минут: <b>34</b> мин" in msg
     assert "💰 1430 монет" in msg
+    assert "в ср. 8.5 мин" in msg
 
     # Check account lines matching prompt specification:
     assert "• <code>gamasek1</code>: <b>0</b> мин (25 монет) 🔥 2 дн." in msg
