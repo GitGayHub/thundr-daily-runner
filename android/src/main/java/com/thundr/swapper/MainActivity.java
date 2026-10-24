@@ -390,7 +390,19 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     // --- OnAccountActionListener implementations ---
 
     @Override
-    public void onOpenChrome(AccountModel acc) {
+    public void onOpenAccount(AccountModel acc) {
+        Intent intent = new Intent(this, BrowserActivity.class);
+        intent.putExtra(BrowserActivity.EXTRA_USERNAME, acc.username);
+        intent.putExtra(BrowserActivity.EXTRA_USER_ID, acc.userId);
+        intent.putExtra(BrowserActivity.EXTRA_TOKEN, acc.hashedToken);
+        intent.putExtra(BrowserActivity.EXTRA_EMAIL, acc.email);
+        intent.putExtra(BrowserActivity.EXTRA_BALANCE, acc.balance);
+        intent.putExtra(BrowserActivity.EXTRA_MINUTES, acc.minutes);
+        startActivity(intent);
+    }
+
+    @Override
+    public void onOpenExternalChrome(AccountModel acc) {
         copyToClipboard(acc.bookmarklet, "ThundrSession");
 
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com"));
@@ -399,41 +411,13 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
         try {
             startActivity(intent);
-            Toast.makeText(this, "🚀 Chrome запущен для " + acc.username + "!\n📋 Сессия скопирована в буфер обмена.", Toast.LENGTH_LONG).show();
         } catch (ActivityNotFoundException e) {
-            // Fallback if Chrome package is not present
             try {
                 Intent fallback = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com"));
                 fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(fallback);
-                Toast.makeText(this, "🌐 Браузер открыт для " + acc.username + "!\n📋 Сессия скопирована в буфер.", Toast.LENGTH_LONG).show();
-            } catch (Exception ex) {
-                Toast.makeText(this, "⚠️ Не удалось открыть браузер: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
-            }
+            } catch (Exception ignored) {}
         }
-    }
-
-    @Override
-    public void onOpenIncognito(AccountModel acc) {
-        copyToClipboard(acc.bookmarklet, "ThundrSession");
-
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com"));
-        intent.setPackage("com.android.chrome");
-        intent.putExtra("com.google.android.apps.chrome.EXTRA_OPEN_NEW_INCOGNITO_TAB", true);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-        try {
-            startActivity(intent);
-            Toast.makeText(this, "🕶️ Chrome Инкогнито (отдельный профиль) запущен для " + acc.username + "!\n📋 Сессия в буфере.", Toast.LENGTH_LONG).show();
-        } catch (ActivityNotFoundException e) {
-            onOpenChrome(acc);
-        }
-    }
-
-    @Override
-    public void onCopyScript(AccountModel acc) {
-        copyToClipboard(acc.bookmarklet, "ThundrSession");
-        Toast.makeText(this, "📋 Скрипт сессии для " + acc.username + " скопирован!\nВставьте в Chrome или используйте закладку.", Toast.LENGTH_LONG).show();
     }
 
     private void copyToClipboard(String text, String label) {

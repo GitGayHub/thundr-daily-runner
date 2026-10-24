@@ -15,9 +15,8 @@ import java.util.List;
 public class AccountAdapter extends BaseAdapter {
 
     public interface OnAccountActionListener {
-        void onOpenChrome(AccountModel account);
-        void onOpenIncognito(AccountModel account);
-        void onCopyScript(AccountModel account);
+        void onOpenAccount(AccountModel account);
+        void onOpenExternalChrome(AccountModel account);
     }
 
     private final Context context;
@@ -26,7 +25,7 @@ public class AccountAdapter extends BaseAdapter {
     private final List<AccountModel> displayedAccounts = new ArrayList<>();
 
     private String currentQuery = "";
-    private String currentFilterMode = "all"; // all, minutes, jackpot, ready
+    private String currentFilterMode = "all";
 
     public AccountAdapter(Context context, List<AccountModel> accounts, OnAccountActionListener listener) {
         this.context = context;
@@ -54,12 +53,9 @@ public class AccountAdapter extends BaseAdapter {
     private void applyFilters() {
         displayedAccounts.clear();
         for (AccountModel a : allAccounts) {
-            // Text search
             if (!currentQuery.isEmpty() && !a.username.toLowerCase().contains(currentQuery)) {
                 continue;
             }
-
-            // Category filter
             if ("minutes".equals(currentFilterMode) && a.minutes <= 0) {
                 continue;
             }
@@ -69,7 +65,6 @@ public class AccountAdapter extends BaseAdapter {
             if ("ready".equals(currentFilterMode) && !a.available) {
                 continue;
             }
-
             displayedAccounts.add(a);
         }
         notifyDataSetChanged();
@@ -103,9 +98,8 @@ public class AccountAdapter extends BaseAdapter {
         TextView tvMinutesBadge = convertView.findViewById(R.id.itemMinutesBadge);
         TextView tvDetails = convertView.findViewById(R.id.itemDetails);
         TextView tvStatus = convertView.findViewById(R.id.itemStatus);
-        Button btnOpenChrome = convertView.findViewById(R.id.btnOpenChrome);
-        Button btnOpenIncognito = convertView.findViewById(R.id.btnOpenIncognito);
-        Button btnCopyScript = convertView.findViewById(R.id.btnCopyScript);
+        Button btnEnter = convertView.findViewById(R.id.btnEnterAccount);
+        Button btnChrome = convertView.findViewById(R.id.btnOpenExternalChrome);
 
         tvUsername.setText(acc.username);
         tvMinutesBadge.setText("⏱️ " + acc.minutes + " мин");
@@ -127,21 +121,16 @@ public class AccountAdapter extends BaseAdapter {
             tvStatus.setTextColor(Color.parseColor("#10B981"));
         }
 
-        // Click listeners
         convertView.setOnClickListener(v -> {
-            if (listener != null) listener.onOpenChrome(acc);
+            if (listener != null) listener.onOpenAccount(acc);
         });
 
-        btnOpenChrome.setOnClickListener(v -> {
-            if (listener != null) listener.onOpenChrome(acc);
+        btnEnter.setOnClickListener(v -> {
+            if (listener != null) listener.onOpenAccount(acc);
         });
 
-        btnOpenIncognito.setOnClickListener(v -> {
-            if (listener != null) listener.onOpenIncognito(acc);
-        });
-
-        btnCopyScript.setOnClickListener(v -> {
-            if (listener != null) listener.onCopyScript(acc);
+        btnChrome.setOnClickListener(v -> {
+            if (listener != null) listener.onOpenExternalChrome(acc);
         });
 
         return convertView;
