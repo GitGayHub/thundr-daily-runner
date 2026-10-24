@@ -2,8 +2,13 @@ package com.thundr.swapper;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
@@ -25,6 +30,7 @@ public class BrowserActivity extends Activity {
     public static final String EXTRA_EMAIL = "extra_email";
     public static final String EXTRA_BALANCE = "extra_balance";
     public static final String EXTRA_MINUTES = "extra_minutes";
+    public static final String EXTRA_BOOKMARKLET = "extra_bookmarklet";
 
     private String username;
     private String userId;
@@ -32,10 +38,12 @@ public class BrowserActivity extends Activity {
     private String email;
     private int balance;
     private int minutes;
+    private String bookmarklet;
 
     private TextView tvBrowserTitle;
     private Button btnBack;
     private Button btnReload;
+    private Button btnBrowserOpenChrome;
     private ProgressBar progressBar;
     private WebView webView;
 
@@ -45,7 +53,7 @@ public class BrowserActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Hardware acceleration for video roulette / WebRTC
+        // Enable hardware acceleration for high-FPS video roulette
         getWindow().setFlags(
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
@@ -53,7 +61,7 @@ public class BrowserActivity extends Activity {
 
         setContentView(R.layout.activity_browser);
 
-        // Request runtime permissions for Camera and Audio (WebRTC video roulette)
+        // Runtime WebRTC Camera and Audio permissions
         requestCameraAndAudioPermissions();
 
         // Read intent extras
@@ -63,10 +71,12 @@ public class BrowserActivity extends Activity {
         email = getIntent().getStringExtra(EXTRA_EMAIL);
         balance = getIntent().getIntExtra(EXTRA_BALANCE, 0);
         minutes = getIntent().getIntExtra(EXTRA_MINUTES, 0);
+        bookmarklet = getIntent().getStringExtra(EXTRA_BOOKMARKLET);
 
         tvBrowserTitle = findViewById(R.id.tvBrowserAccountTitle);
         btnBack = findViewById(R.id.btnBackToAccounts);
         btnReload = findViewById(R.id.btnReloadPage);
+        btnBrowserOpenChrome = findViewById(R.id.btnBrowserOpenChrome);
         progressBar = findViewById(R.id.browserProgressBar);
         webView = findViewById(R.id.browserWebView);
 
@@ -76,6 +86,24 @@ public class BrowserActivity extends Activity {
         btnReload.setOnClickListener(v -> {
             injectSession(webView);
             webView.reload();
+        });
+
+        btnBrowserOpenChrome.setOnClickListener(v -> {
+            if (bookmarklet != null && !bookmarklet.isEmpty()) {
+                ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                ClipData clip = ClipData.newPlainText("thundr_session", bookmarklet);
+                clipboard.setPrimaryClip(clip);
+            }
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com"));
+                intent.setPackage("com.android.chrome");
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Exception e) {
+                Intent fallback = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com"));
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(fallback);
+            }
         });
 
         initWebView();
@@ -105,10 +133,10 @@ public class BrowserActivity extends Activity {
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
 
-        // CRITICAL FOR WEBRTC VIDEO ROULETTE: Allow autoplay without requiring user touch
+        // Autoplay WebRTC video streams without touch
         ws.setMediaPlaybackRequiresUserGesture(false);
 
-        // Chrome User Agent (Mobile Chrome 124)
+        // Chromium user agent
         ws.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
 
         CookieManager.getInstance().setAcceptCookie(true);
@@ -119,12 +147,13 @@ public class BrowserActivity extends Activity {
             public void onProgressChanged(WebView view, int newProgress) {
                 if (newProgress < 100) {
                     progressBar.setVisibility(View.VISIBLE);
+                    progressBar.setProgress(newProgress);
                 } else {
                     progressBar.setVisibility(View.GONE);
                 }
             }
 
-            // CRITICAL FOR WEBRTC VIDEO ROULETTE: Grant Camera and Audio permissions to WebRTC
+            // CRITICAL FOR WEBRTC VIDEO ROULETTE: Grant Camera and Microphone to WebRTC
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
@@ -148,6 +177,7 @@ public class BrowserActivity extends Activity {
                 injectSession(view);
                 if (!isReloadedWithSession && url != null && url.contains("thundr.com")) {
                     isReloadedWithSession = true;
+                    // Hydrate SvelteKit with injected user session
                     view.evaluateJavascript(
                             "(function() {" +
                             "  if (!window.__thundr_swapped) {" +
@@ -159,7 +189,6 @@ public class BrowserActivity extends Activity {
             }
         });
 
-        // Load starting URL
         webView.loadUrl("https://thundr.com");
     }
 

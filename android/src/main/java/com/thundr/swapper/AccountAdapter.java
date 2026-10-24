@@ -15,8 +15,8 @@ import java.util.List;
 public class AccountAdapter extends BaseAdapter {
 
     public interface OnAccountActionListener {
-        void onOpenAccount(AccountModel account);
-        void onOpenExternalChrome(AccountModel account);
+        void onInstantLogin(AccountModel account);
+        void onOpenInChrome(AccountModel account);
     }
 
     private final Context context;
@@ -98,11 +98,11 @@ public class AccountAdapter extends BaseAdapter {
         TextView tvMinutesBadge = convertView.findViewById(R.id.itemMinutesBadge);
         TextView tvDetails = convertView.findViewById(R.id.itemDetails);
         TextView tvStatus = convertView.findViewById(R.id.itemStatus);
-        Button btnEnter = convertView.findViewById(R.id.btnEnterAccount);
-        Button btnChrome = convertView.findViewById(R.id.btnOpenExternalChrome);
+        Button btnInstantLogin = convertView.findViewById(R.id.btnInstantLogin);
+        Button btnOpenChrome = convertView.findViewById(R.id.btnOpenChrome);
 
         tvUsername.setText(acc.username);
-        tvMinutesBadge.setText("⏱️ " + acc.minutes + " мин");
+        tvMinutesBadge.setText("⏱ " + acc.minutes + " мин");
 
         if (acc.isJackpot) {
             tvJackpotBadge.setVisibility(View.VISIBLE);
@@ -122,15 +122,15 @@ public class AccountAdapter extends BaseAdapter {
         }
 
         convertView.setOnClickListener(v -> {
-            if (listener != null) listener.onOpenAccount(acc);
+            if (listener != null) listener.onInstantLogin(acc);
         });
 
-        btnEnter.setOnClickListener(v -> {
-            if (listener != null) listener.onOpenAccount(acc);
+        btnInstantLogin.setOnClickListener(v -> {
+            if (listener != null) listener.onInstantLogin(acc);
         });
 
-        btnChrome.setOnClickListener(v -> {
-            if (listener != null) listener.onOpenExternalChrome(acc);
+        btnOpenChrome.setOnClickListener(v -> {
+            if (listener != null) listener.onOpenInChrome(acc);
         });
 
         return convertView;

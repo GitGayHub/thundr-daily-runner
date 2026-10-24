@@ -146,10 +146,9 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
                 .setTitle("💡 Свап в настоящем Google Chrome")
                 .setMessage("1. Сохраните один раз закладку в Chrome с именем «s»:\n" +
                         "URL: " + bookmarkletCode + "\n\n" +
-                        "2. Нажмите «🌐 В Chrome» на любом аккаунте в списке (сессия автоматически скопируется в буфер).\n\n" +
-                        "3. В открывшемся Chrome нажмите на адресную строку, напишите букву «s» и выберите вашу закладку со звёздочкой ⭐.\n\n" +
-                        "4. Chrome мгновенно перезагрузится залогиненным с работающей видеорулеткой!\n\n" +
-                        "💡 Также кнопка «⚡ Войти в аккаунт» теперь поддерживает камеру и микрофон!")
+                        "2. Нажмите «🚀 Открыть в Chrome» на любом аккаунте (сессия автоматически скопируется в буфер).\n\n" +
+                        "3. В открывшемся Chrome нажмите на адресную строку, введите «s» и выберите закладку со звёздочкой ⭐.\n\n" +
+                        "4. Chrome мгновенно перезагрузится залогиненным с работающей видеорулеткой!")
                 .setPositiveButton("📋 Скопировать код закладки", (d, w) -> {
                     copyToClipboard(bookmarkletCode, "ChromeBookmarklet");
                     Toast.makeText(this, "Код закладки скопирован в буфер!", Toast.LENGTH_SHORT).show();
@@ -413,19 +412,20 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     // --- OnAccountActionListener implementations ---
 
     @Override
-    public void onOpenAccount(AccountModel acc) {
+    public void onInstantLogin(AccountModel acc) {
         Intent intent = new Intent(this, BrowserActivity.class);
         intent.putExtra(BrowserActivity.EXTRA_USERNAME, acc.username);
         intent.putExtra(BrowserActivity.EXTRA_USER_ID, acc.userId);
         intent.putExtra(BrowserActivity.EXTRA_TOKEN, acc.hashedToken);
-        intent.putExtra(BrowserActivity.EXTRA_EMAIL, acc.email);
+        intent.putExtra(BrowserActivity.EXTRA_EMAIL, acc.username);
         intent.putExtra(BrowserActivity.EXTRA_BALANCE, acc.balance);
         intent.putExtra(BrowserActivity.EXTRA_MINUTES, acc.minutes);
+        intent.putExtra(BrowserActivity.EXTRA_BOOKMARKLET, acc.bookmarklet);
         startActivity(intent);
     }
 
     @Override
-    public void onOpenExternalChrome(AccountModel acc) {
+    public void onOpenInChrome(AccountModel acc) {
         copyToClipboard(acc.bookmarklet, "ThundrSession");
 
         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com"));
