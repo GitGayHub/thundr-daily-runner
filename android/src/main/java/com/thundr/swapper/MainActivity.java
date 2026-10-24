@@ -50,7 +50,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
     private TextView tvAppTitle;
     private Button btnRefresh;
-    private Button btnHelpChrome;
+    private Button btnSettings;
     private TextView tvSyncStatus;
     private ProgressBar syncSpinner;
     private TextView tvStatCount;
@@ -84,7 +84,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         setupSearch();
 
         btnRefresh.setOnClickListener(v -> syncWithGithub(true));
-        btnHelpChrome.setOnClickListener(v -> showChromeHelpDialog());
+        btnSettings.setOnClickListener(v -> showSettingsDialog());
 
         // Load cached accounts immediately (0.05s startup)
         loadCachedAccounts();
@@ -121,7 +121,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     private void bindViews() {
         tvAppTitle = findViewById(R.id.tvAppTitle);
         btnRefresh = findViewById(R.id.btnRefresh);
-        btnHelpChrome = findViewById(R.id.btnHelpChrome);
+        btnSettings = findViewById(R.id.btnSettings);
         tvSyncStatus = findViewById(R.id.tvSyncStatus);
         syncSpinner = findViewById(R.id.syncSpinner);
         tvStatCount = findViewById(R.id.tvStatCount);
@@ -138,25 +138,64 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         tvEmptyState = findViewById(R.id.tvEmptyState);
     }
 
-    private void showChromeHelpDialog() {
-        final String bookmarkletCode =
-            "javascript:(function(){var m=location.hash.match(/tsw=([^&]+)/),t=null;if(m){try{t=atob(m[1].replace(/-/g,'+').replace(/_/g,'/'))}catch(e){}}function go(x){JSON.parse(x);localStorage.setItem('user',x);sessionStorage.setItem('user',x);location.replace('https://thundr.com/')}if(t){go(t)}else{navigator.clipboard.readText().then(go).catch(function(){var p=prompt('JSON:');if(p)go(p)})}})();";
+    public static final String PREF_SIM_CYCLE = "sim_cycle_before_account";
+
+    private void showSettingsDialog() {
+        final SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad / 2, pad, 0);
+
+        android.widget.CheckBox cb = new android.widget.CheckBox(this);
+        cb.setText("🔄 Перезагружать SIM (0.5 сек) перед каждым новым аккаунтом — смена IP");
+        cb.setTextSize(15);
+        cb.setChecked(prefs.getBoolean(PREF_SIM_CYCLE, false));
+        cb.setOnCheckedChangeListener((v, isChecked) -> prefs.edit().putBoolean(PREF_SIM_CYCLE, isChecked).apply());
+        box.addView(cb);
+
+        TextView hint = new TextView(this);
+        hint.setText("Нужен ADB по сети (один раз с ПК: adb tcpip 5555) и разрешение отладки для приложения. Проверка — кнопка ниже.");
+        hint.setTextSize(12);
+        hint.setPadding(0, pad / 2, 0, 0);
+        box.addView(hint);
 
         new android.app.AlertDialog.Builder(this)
-                .setTitle("💡 Свап в настоящем Google Chrome")
-                .setMessage("1. Сохраните один раз закладку в Chrome с именем «s»:\n" +
-                        "URL: " + bookmarkletCode + "\n\n" +
-                        "2. Нажмите «🚀 Открыть в Chrome» на любом аккаунте (сессия автоматически скопируется в буфер).\n\n" +
-                        "3. В открывшемся Chrome нажмите на адресную строку, введите «s» и выберите закладку со звёздочкой ⭐.\n\n" +
-                        "4. Chrome мгновенно перезагрузится залогиненным с работающей видеорулеткой!")
-                .setPositiveButton("📋 Скопировать код закладки", (d, w) -> {
-                    copyToClipboard(bookmarkletCode, "ChromeBookmarklet");
-                    Toast.makeText(this, "Код закладки скопирован в буфер!", Toast.LENGTH_SHORT).show();
-                })
-                .setNegativeButton("Понятно", null)
+                .setTitle("⚙️ Настройки")
+                .setView(box)
+                .setPositiveButton("🔌 Проверить ADB-доступ", (d, w) -> testAdbAccess())
+                .setNegativeButton("Закрыть", null)
                 .show();
     }
-
+    /** Connects to the phone's own adbd (127.0.0.1:5555) and asks Android to authorize this app. */
+    private void testAdbAccess() {
+        final android.app.AlertDialog wait = new android.app.AlertDialog.Builder(this)
+                .setTitle("🔌 ADB")
+                .setMessage("Подключаюсь... Если на экране появится «Разрешить отладку по USB?» — отметь «Всегда разрешать» и нажми «Разрешить».")
+                .setCancelable(false)
+                .show();
+        new Thread(() -> {
+            String result;
+            AdbShell adb = new AdbShell(this);
+            try {
+                adb.connect(60000);
+                String id = adb.shell("id", 5000).trim();
+                result = "✅ ADB работает.\n" + id + "\n\nПеред каждым аккаунтом SIM можно перезагружать.";
+            } catch (java.net.ConnectException e) {
+                result = "❌ Нет ADB по сети.\nНа ПК выполни один раз при подключенном кабеле:\nadb tcpip 5555";
+            } catch (Exception e) {
+                result = "❌ " + e;
+            } finally {
+                adb.close();
+            }
+            final String msg = result;
+            runOnUiThread(() -> {
+                wait.dismiss();
+                new android.app.AlertDialog.Builder(this).setTitle("🔌 ADB").setMessage(msg).setPositiveButton("OK", null).show();
+            });
+        }).start();
+    }
     private void setupSearch() {
         etSearch.addTextChangedListener(new TextWatcher() {
             @Override
@@ -423,37 +462,5 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         intent.putExtra(BrowserActivity.EXTRA_MINUTES, acc.minutes);
         intent.putExtra(BrowserActivity.EXTRA_BOOKMARKLET, acc.getUserPayloadJson());
         startActivity(intent);
-    }
-
-    @Override
-    public void onOpenInChrome(AccountModel acc) {
-        // Clipboard holds plain session JSON (fallback for the "s" bookmarklet).
-        String json = acc.getUserPayloadJson();
-        copyToClipboard(json, "ThundrSession");
-
-        // Session is also passed in the URL hash so the bookmarklet needs no clipboard permission.
-        String b64 = android.util.Base64.encodeToString(
-                json.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
-
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com/signin#tsw=" + b64));
-        intent.setPackage("com.android.chrome");
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-        try {
-            startActivity(intent);
-        } catch (ActivityNotFoundException e) {
-            try {
-                Intent fallback = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com"));
-                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(fallback);
-            } catch (Exception ignored) {}
-        }
-    }
-
-    private void copyToClipboard(String text, String label) {
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        ClipData clip = ClipData.newPlainText(label, text);
-        clipboard.setPrimaryClip(clip);
     }
 }

@@ -1,8 +1,8 @@
 {
-  "updated_at": "2026-10-24T05:48:40.565786+00:00",
-  "updated_at_epoch": 1792820920,
-  "updated_at_display": "24.10.2026 05:48 UTC",
-  "total_accounts": 57,
+  "updated_at": "2026-10-24T06:04:41.334877+00:00",
+  "updated_at_epoch": 1792821881,
+  "updated_at_display": "24.10.2026 06:04 UTC",
+  "total_accounts": 62,
   "total_coins": 8245,
   "total_minutes": 64,
   "accounts": [
@@ -746,6 +746,71 @@
       "user_id": "cfc214ab-3c3f-4363-8c94-92d02c7573e6",
       "hashed_token": "O2IA32VRHqQgQYNGFwsoFIPL4Cp8t4yeaM6HGm/MSpc=",
       "bookmarklet": "javascript:(function(){var u={\"id\": \"cfc214ab-3c3f-4363-8c94-92d02c7573e6\", \"hashed_token\": \"O2IA32VRHqQgQYNGFwsoFIPL4Cp8t4yeaM6HGm/MSpc=\", \"email\": \"antigoon7\", \"username\": \"antigoon7\"};localStorage.setItem('user',JSON.stringify(u));sessionStorage.setItem('user',JSON.stringify(u));alert('✅ Свап на: antigoon7');location.href='https://thundr.com';})();"
+    },
+    {
+      "username": "antigoon8",
+      "password": "qwerty1234#",
+      "balance": 0,
+      "minutes": 0,
+      "streak": 1,
+      "is_jackpot": false,
+      "available": true,
+      "next_reset_at": "2026-10-25T00:00:00Z",
+      "user_id": "9aa1c46e-2c49-4c6f-b0e3-cc8f956291b6",
+      "hashed_token": "mmbHXMope9hWxmhw1arfSogM9KRuJpXrARCeI3bhzBQ=",
+      "bookmarklet": "javascript:(function(){var u={\"id\": \"9aa1c46e-2c49-4c6f-b0e3-cc8f956291b6\", \"hashed_token\": \"mmbHXMope9hWxmhw1arfSogM9KRuJpXrARCeI3bhzBQ=\", \"email\": \"antigoon8\", \"username\": \"antigoon8\"};localStorage.setItem('user',JSON.stringify(u));sessionStorage.setItem('user',JSON.stringify(u));alert('✅ Свап на: antigoon8');location.href='https://thundr.com';})();"
+    },
+    {
+      "username": "antigoon9",
+      "password": "qwerty1234#",
+      "balance": 0,
+      "minutes": 0,
+      "streak": 1,
+      "is_jackpot": false,
+      "available": true,
+      "next_reset_at": "2026-10-25T00:00:00Z",
+      "user_id": "d8aad83d-4c6a-4156-bfa8-876278751294",
+      "hashed_token": "dkBJ1g4r+MjQvY+WCP1bt0jGN/RHmynB7gTtowp0N/I=",
+      "bookmarklet": "javascript:(function(){var u={\"id\": \"d8aad83d-4c6a-4156-bfa8-876278751294\", \"hashed_token\": \"dkBJ1g4r+MjQvY+WCP1bt0jGN/RHmynB7gTtowp0N/I=\", \"email\": \"antigoon9\", \"username\": \"antigoon9\"};localStorage.setItem('user',JSON.stringify(u));sessionStorage.setItem('user',JSON.stringify(u));alert('✅ Свап на: antigoon9');location.href='https://thundr.com';})();"
+    },
+    {
+      "username": "antigoon10",
+      "password": "qwerty1234#",
+      "balance": 0,
+      "minutes": 0,
+      "streak": 1,
+      "is_jackpot": false,
+      "available": true,
+      "next_reset_at": "2026-10-25T00:00:00Z",
+      "user_id": "253df2ff-89c9-4a5b-9729-d17c02292106",
+      "hashed_token": "qc8PCBiHYFPMNRZsCi3413Ca4nmLd3VgVUonOlWBJ/Q=",
+      "bookmarklet": "javascript:(function(){var u={\"id\": \"253df2ff-89c9-4a5b-9729-d17c02292106\", \"hashed_token\": \"qc8PCBiHYFPMNRZsCi3413Ca4nmLd3VgVUonOlWBJ/Q=\", \"email\": \"antigoon10\", \"username\": \"antigoon10\"};localStorage.setItem('user',JSON.stringify(u));sessionStorage.setItem('user',JSON.stringify(u));alert('✅ Свап на: antigoon10');location.href='https://thundr.com';})();"
+    },
+    {
+      "username": "antigoon11",
+      "password": "qwerty1234#",
+      "balance": 0,
+      "minutes": 0,
+      "streak": 1,
+      "is_jackpot": false,
+      "available": true,
+      "next_reset_at": "2026-10-25T00:00:00Z",
+      "user_id": "1da060cd-8969-4497-8b4c-ad2e1acca388",
+      "hashed_token": "clcbepyMOZdDVGGWwEC+Ec14cYrE3u3T18pfeEGicZ8=",
+      "bookmarklet": "javascript:(function(){var u={\"id\": \"1da060cd-8969-4497-8b4c-ad2e1acca388\", \"hashed_token\": \"clcbepyMOZdDVGGWwEC+Ec14cYrE3u3T18pfeEGicZ8=\", \"email\": \"antigoon11\", \"username\": \"antigoon11\"};localStorage.setItem('user',JSON.stringify(u));sessionStorage.setItem('user',JSON.stringify(u));alert('✅ Свап на: antigoon11');location.href='https://thundr.com';})();"
+    },
+    {
+      "username": "antigoon12",
+      "password": "qwerty1234#",
+      "balance": 0,
+      "minutes": 0,
+      "streak": 1,
+      "is_jackpot": false,
+      "available": true,
+      "next_reset_at": "2026-10-25T00:00:00Z",
+      "user_id": "54d93270-e297-4f10-a449-4fd99d30da7f",
+      "hashed_token": "0hCIWrPj7ZYIpSyIfhSDeH3Ms9sNl/CMHQv/rOrzkO0=",
+      "bookmarklet": "javascript:(function(){var u={\"id\": \"54d93270-e297-4f10-a449-4fd99d30da7f\", \"hashed_token\": \"0hCIWrPj7ZYIpSyIfhSDeH3Ms9sNl/CMHQv/rOrzkO0=\", \"email\": \"antigoon12\", \"username\": \"antigoon12\"};localStorage.setItem('user',JSON.stringify(u));sessionStorage.setItem('user',JSON.stringify(u));alert('✅ Свап на: antigoon12');location.href='https://thundr.com';})();"
     }
   ]
 }

@@ -16,7 +16,6 @@ public class AccountAdapter extends BaseAdapter {
 
     public interface OnAccountActionListener {
         void onInstantLogin(AccountModel account);
-        void onOpenInChrome(AccountModel account);
     }
 
     private final Context context;
@@ -99,7 +98,6 @@ public class AccountAdapter extends BaseAdapter {
         TextView tvDetails = convertView.findViewById(R.id.itemDetails);
         TextView tvStatus = convertView.findViewById(R.id.itemStatus);
         Button btnInstantLogin = convertView.findViewById(R.id.btnInstantLogin);
-        Button btnOpenChrome = convertView.findViewById(R.id.btnOpenChrome);
 
         tvUsername.setText(acc.username);
         tvMinutesBadge.setText("⏱ " + acc.minutes + " мин");
@@ -127,10 +125,6 @@ public class AccountAdapter extends BaseAdapter {
 
         btnInstantLogin.setOnClickListener(v -> {
             if (listener != null) listener.onInstantLogin(acc);
-        });
-
-        btnOpenChrome.setOnClickListener(v -> {
-            if (listener != null) listener.onOpenInChrome(acc);
         });
 
         return convertView;

@@ -2,12 +2,8 @@ package com.thundr.swapper;
 
 import android.Manifest;
 import android.app.Activity;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
@@ -47,6 +43,7 @@ public class BrowserActivity extends Activity {
     public static final String EXTRA_MINUTES = "extra_minutes";
     public static final String EXTRA_BOOKMARKLET = "extra_bookmarklet";
 
+    private static final String USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
     private static final String ORIGIN = "https://thundr.com";
     private static final String SEED_URL = ORIGIN + "/robots.txt";
     private static final String DEFAULT_SETTINGS =
@@ -73,7 +70,6 @@ public class BrowserActivity extends Activity {
     private TextView tvBrowserTitle;
     private Button btnBack;
     private Button btnReload;
-    private Button btnBrowserOpenChrome;
     private ProgressBar progressBar;
     private WebView webView;
     private PermissionRequest pendingWebPermission;
@@ -102,7 +98,6 @@ public class BrowserActivity extends Activity {
         tvBrowserTitle = findViewById(R.id.tvBrowserAccountTitle);
         btnBack = findViewById(R.id.btnBackToAccounts);
         btnReload = findViewById(R.id.btnReloadPage);
-        btnBrowserOpenChrome = findViewById(R.id.btnBrowserOpenChrome);
         progressBar = findViewById(R.id.browserProgressBar);
         webView = findViewById(R.id.browserWebView);
 
@@ -110,29 +105,11 @@ public class BrowserActivity extends Activity {
 
         btnBack.setOnClickListener(v -> finish());
         btnReload.setOnClickListener(v -> webView.reload());
-        btnBrowserOpenChrome.setOnClickListener(v -> openInExternalChrome());
 
         requestCameraAndAudioPermissions();
         WebView.setWebContentsDebuggingEnabled(true);
         initWebView();
         startSession();
-    }
-
-    private void openInExternalChrome() {
-        if (sessionJson != null && !sessionJson.isEmpty()) {
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newPlainText("thundr_session", sessionJson));
-        }
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(ORIGIN));
-            intent.setPackage("com.android.chrome");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(intent);
-        } catch (Exception e) {
-            Intent fallback = new Intent(Intent.ACTION_VIEW, Uri.parse(ORIGIN));
-            fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(fallback);
-        }
     }
 
     private boolean hasMediaPermissions() {
@@ -170,7 +147,11 @@ public class BrowserActivity extends Activity {
         WebStorage.getInstance().deleteAllData();
         progressBar.setVisibility(View.VISIBLE);
 
+        final boolean cycleSim = getSharedPreferences("thundr_swapper_prefs", Context.MODE_PRIVATE)
+                .getBoolean(MainActivity.PREF_SIM_CYCLE, false);
+
         new Thread(() -> {
+            if (cycleSim) cycleSimCard();
             String u = null;
             String s = null;
             try {
@@ -247,6 +228,92 @@ public class BrowserActivity extends Activity {
         settings.put("performance", perf);
     }
 
+    /**
+     * Power-cycles the active SIM (0.5 s off, then on) to get a new mobile IP,
+     * using the same shell tool as vpn-proxy-manager (sim_tool.dex) through the phone's own adbd.
+     */
+    private void cycleSimCard() {
+        setTitleText("🔄 SIM: перезагрузка...");
+        AdbShell adb = new AdbShell(this);
+        try {
+            adb.connect(60000);
+            String dex = "/data/local/tmp/sim_tool.dex";
+            String ls = adb.shell("ls " + dex + " 2>/dev/null", 5000).trim();
+            if (!ls.contains("sim_tool.dex")) adb.pushAsset("sim_tool.dex", dex);
+
+            int subId = 4;
+            String reg = adb.shell("dumpsys telephony.registry | grep -m 1 mActiveDataSubId", 8000);
+            int idx = reg.indexOf("mActiveDataSubId=");
+            if (idx >= 0) {
+                try {
+                    int v = Integer.parseInt(reg.substring(idx + 17).trim().split("\\s+")[0]);
+                    if (v > 0) subId = v;
+                } catch (Exception ignored) {
+                }
+            }
+
+            String out = adb.shell("app_process -Djava.class.path=" + dex + " /data/local/tmp SimTool cycle " + subId + " 500", 20000);
+            if (!out.contains("CYCLE_COMPLETE")) {
+                // Fallback: soft mobile-data restart
+                adb.shell("svc data disable; sleep 0.5; svc data enable", 10000);
+            }
+            waitForNetwork(25000);
+            setTitleText("✅ SIM перезагружена");
+        } catch (java.net.ConnectException e) {
+            setTitleText("⚠️ SIM: нет ADB (adb tcpip 5555)");
+        } catch (Exception e) {
+            android.util.Log.w("ThundrWeb", "SIM cycle failed: " + e);
+            setTitleText("⚠️ SIM: " + e.getMessage());
+        } finally {
+            adb.close();
+        }
+        try {
+            Thread.sleep(600);
+        } catch (InterruptedException ignored) {
+        }
+        runOnUiThread(() -> tvBrowserTitle.setText("👤 " + username + " (" + minutes + " мин | " + balance + " 🪙)"));
+    }
+
+    private void setTitleText(final String t) {
+        runOnUiThread(() -> tvBrowserTitle.setText(t));
+    }
+
+    private void waitForNetwork(int timeoutMs) {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        long end = System.currentTimeMillis() + timeoutMs;
+        try {
+            Thread.sleep(1500); // let the radio actually drop first
+            while (System.currentTimeMillis() < end) {
+                android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+                if (ni != null && ni.isConnected()) {
+                    java.net.HttpURLConnection c = (java.net.HttpURLConnection) new URL("https://id.thundr.com/").openConnection();
+                    c.setConnectTimeout(3000);
+                    c.setReadTimeout(3000);
+                    try {
+                        c.getResponseCode();
+                        return;
+                    } catch (Exception ignored) {
+                    } finally {
+                        c.disconnect();
+                    }
+                }
+                Thread.sleep(700);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static final String POPUP_KILLER_JS = "(function(){if(window.__tswPopup)return;window.__tswPopup=1;"
+            + "function kill(){try{"
+            + "document.querySelectorAll('div.fixed').forEach(function(d){"
+            + "var t=d.textContent||'';"
+            + "if(/Today.s Forecast/i.test(t)&&/Google Play|Click for/i.test(t)){"
+            + "var b=d.querySelector('button.btn-circle');if(b){b.click();}else{d.style.display='none';}}"
+            + "});"
+            + "document.querySelectorAll('button').forEach(function(b){"
+            + "if(/^\\s*Don.t show again\\s*$/i.test(b.textContent||'')){b.click();}});"
+            + "}catch(e){}}"
+            + "new MutationObserver(kill).observe(document.documentElement,{childList:true,subtree:true});kill();})();";
     private JSONObject apiLogin(String login, String pass) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL("https://id.thundr.com/api/users/login").openConnection();
         c.setRequestMethod("POST");
@@ -255,7 +322,7 @@ public class BrowserActivity extends Activity {
         c.setDoOutput(true);
         c.setRequestProperty("Content-Type", "application/json");
         c.setRequestProperty("Accept", "application/json");
-        c.setRequestProperty("User-Agent", webView.getSettings().getUserAgentString());
+        c.setRequestProperty("User-Agent", USER_AGENT);
         JSONObject body = new JSONObject();
         body.put("email", login);
         body.put("password", pass);
@@ -284,7 +351,7 @@ public class BrowserActivity extends Activity {
         ws.setAllowFileAccess(true);
         ws.setAllowContentAccess(true);
         ws.setMediaPlaybackRequiresUserGesture(false);
-        ws.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+        ws.setUserAgentString(USER_AGENT);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -327,11 +394,16 @@ public class BrowserActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (url != null && url.startsWith(ORIGIN) && !url.startsWith(SEED_URL)) {
+                    view.evaluateJavascript(POPUP_KILLER_JS, null);
+                }
                 if (!seeded && url != null && url.startsWith(SEED_URL) && userJson != null) {
                     seeded = true;
                     String js = "(function(){try{"
                             + "localStorage.setItem('user'," + JSONObject.quote(userJson) + ");"
                             + "localStorage.setItem('settings'," + JSONObject.quote(settingsJson) + ");"
+                            + "localStorage.setItem('notification_match_history_1_last_shown',new Date().toDateString());"
+                            + "localStorage.setItem('downloadPopupDismissedAt',String(Date.now()));"
                             + "}catch(e){}})();";
                     view.evaluateJavascript(js, value -> view.loadUrl(ORIGIN));
                 }
