@@ -63,25 +63,34 @@ public class AdbShell {
     // ---------------------------------------------------------------- keys
 
     private KeyPair loadOrCreateKey() throws Exception {
-        SharedPreferences sp = ctx.getSharedPreferences("thundr_adb", Context.MODE_PRIVATE);
-        String priv = sp.getString("priv", null);
-        String pub = sp.getString("pub", null);
-        KeyFactory kf = KeyFactory.getInstance("RSA");
-        if (priv != null && pub != null) {
-            return new KeyPair(
-                    kf.generatePublic(new X509EncodedKeySpec(Base64.decode(pub, Base64.NO_WRAP))),
-                    kf.generatePrivate(new PKCS8EncodedKeySpec(Base64.decode(priv, Base64.NO_WRAP))));
+        synchronized (AdbShell.class) {
+            File f = new File(ctx.getFilesDir(), "adb_key.json");
+            KeyFactory kf = KeyFactory.getInstance("RSA");
+            if (f.exists()) {
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject(new String(java.nio.file.Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8));
+                    return new KeyPair(
+                            kf.generatePublic(new X509EncodedKeySpec(Base64.decode(o.getString("pub"), Base64.NO_WRAP))),
+                            kf.generatePrivate(new PKCS8EncodedKeySpec(Base64.decode(o.getString("priv"), Base64.NO_WRAP))));
+                } catch (Exception ignored) {
+                    // corrupted - regenerate below
+                }
+            }
+            KeyPairGenerator g = KeyPairGenerator.getInstance("RSA");
+            g.initialize(2048);
+            KeyPair kp = g.generateKeyPair();
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("priv", Base64.encodeToString(kp.getPrivate().getEncoded(), Base64.NO_WRAP));
+            o.put("pub", Base64.encodeToString(kp.getPublic().getEncoded(), Base64.NO_WRAP));
+            File tmp = new File(ctx.getFilesDir(), "adb_key.json.tmp");
+            try (FileOutputStream fos = new FileOutputStream(tmp)) {
+                fos.write(o.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            //noinspection ResultOfMethodCallIgnored
+            tmp.renameTo(f);
+            return kp;
         }
-        KeyPairGenerator g = KeyPairGenerator.getInstance("RSA");
-        g.initialize(2048);
-        KeyPair kp = g.generateKeyPair();
-        sp.edit()
-                .putString("priv", Base64.encodeToString(kp.getPrivate().getEncoded(), Base64.NO_WRAP))
-                .putString("pub", Base64.encodeToString(kp.getPublic().getEncoded(), Base64.NO_WRAP))
-                .apply();
-        return kp;
     }
-
     /** Public key in the format adbd expects (struct RSAPublicKey, base64 + " name"). */
     private static byte[] androidPublicKey(RSAPublicKey key) {
         final int words = 64; // 2048 bit

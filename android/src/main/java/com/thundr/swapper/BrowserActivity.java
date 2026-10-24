@@ -74,9 +74,18 @@ public class BrowserActivity extends Activity {
     private WebView webView;
     private PermissionRequest pendingWebPermission;
 
+    private static final String PROFILE_SUFFIX = "tsw";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Brand-new browser profile on every entry: own WebView data dir, wiped before use.
+        try {
+            WebView.setDataDirectorySuffix(PROFILE_SUFFIX);
+        } catch (Exception ignored) {
+        }
+        wipeProfileFiles();
 
         getWindow().setFlags(
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
@@ -112,6 +121,22 @@ public class BrowserActivity extends Activity {
         startSession();
     }
 
+    /** Deletes every file of the WebView profile: cookies, localStorage, IndexedDB, cache, service workers. */
+    private void wipeProfileFiles() {
+        deleteRecursive(new java.io.File(getDataDir(), "app_webview_" + PROFILE_SUFFIX));
+        deleteRecursive(new java.io.File(getCacheDir(), "WebView"));
+        deleteRecursive(new java.io.File(getCacheDir(), "org.chromium.android_webview"));
+        deleteRecursive(new java.io.File(getDataDir(), "app_webview"));
+    }
+
+    private static void deleteRecursive(java.io.File f) {
+        if (f == null || !f.exists()) return;
+        java.io.File[] kids = f.listFiles();
+        if (kids != null) for (java.io.File k : kids) deleteRecursive(k);
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
+    }
+
     private boolean hasMediaPermissions() {
         return checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
                 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
@@ -144,7 +169,13 @@ public class BrowserActivity extends Activity {
     /** Wipes previous account data, logs in via API (background), then seeds localStorage and opens the site. */
     private void startSession() {
         CookieManager.getInstance().removeAllCookies(null);
+        CookieManager.getInstance().removeSessionCookies(null);
+        CookieManager.getInstance().flush();
         WebStorage.getInstance().deleteAllData();
+        webView.clearCache(true);
+        webView.clearHistory();
+        webView.clearFormData();
+        android.webkit.WebViewDatabase.getInstance(this).clearHttpAuthUsernamePassword();
         progressBar.setVisibility(View.VISIBLE);
 
         final boolean cycleSim = getSharedPreferences("thundr_swapper_prefs", Context.MODE_PRIVATE)
@@ -424,8 +455,17 @@ public class BrowserActivity extends Activity {
     protected void onDestroy() {
         if (webView != null) {
             webView.stopLoading();
+            CookieManager.getInstance().removeAllCookies(null);
+            WebStorage.getInstance().deleteAllData();
+            webView.clearCache(true);
             webView.clearHistory();
+            webView.destroy();
         }
         super.onDestroy();
+        // Kill the dedicated ":browser" process so no state survives; the profile is wiped on next start.
+        if (isFinishing()) {
+            wipeProfileFiles();
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }
     }
 }
