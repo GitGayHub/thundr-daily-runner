@@ -50,6 +50,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
     private TextView tvAppTitle;
     private Button btnRefresh;
+    private Button btnHelpChrome;
     private TextView tvSyncStatus;
     private ProgressBar syncSpinner;
     private TextView tvStatCount;
@@ -83,6 +84,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         setupSearch();
 
         btnRefresh.setOnClickListener(v -> syncWithGithub(true));
+        btnHelpChrome.setOnClickListener(v -> showChromeHelpDialog());
 
         // Load cached accounts immediately (0.05s startup)
         loadCachedAccounts();
@@ -119,6 +121,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     private void bindViews() {
         tvAppTitle = findViewById(R.id.tvAppTitle);
         btnRefresh = findViewById(R.id.btnRefresh);
+        btnHelpChrome = findViewById(R.id.btnHelpChrome);
         tvSyncStatus = findViewById(R.id.tvSyncStatus);
         syncSpinner = findViewById(R.id.syncSpinner);
         tvStatCount = findViewById(R.id.tvStatCount);
@@ -133,6 +136,26 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
         lvAccounts = findViewById(R.id.lvAccounts);
         tvEmptyState = findViewById(R.id.tvEmptyState);
+    }
+
+    private void showChromeHelpDialog() {
+        final String bookmarkletCode =
+            "javascript:(function(){navigator.clipboard.readText().then(t=>{if(t){localStorage.setItem('user',t);sessionStorage.setItem('user',t);location.reload();}}).catch(e=>{var p=prompt('JSON:');if(p){localStorage.setItem('user',p);sessionStorage.setItem('user',p);location.reload();}});})();";
+
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("💡 Свап в настоящем Google Chrome")
+                .setMessage("1. Сохраните один раз закладку в Chrome с именем «s»:\n" +
+                        "URL: " + bookmarkletCode + "\n\n" +
+                        "2. Нажмите «🌐 В Chrome» на любом аккаунте в списке (сессия автоматически скопируется в буфер).\n\n" +
+                        "3. В открывшемся Chrome нажмите на адресную строку, напишите букву «s» и выберите вашу закладку со звёздочкой ⭐.\n\n" +
+                        "4. Chrome мгновенно перезагрузится залогиненным с работающей видеорулеткой!\n\n" +
+                        "💡 Также кнопка «⚡ Войти в аккаунт» теперь поддерживает камеру и микрофон!")
+                .setPositiveButton("📋 Скопировать код закладки", (d, w) -> {
+                    copyToClipboard(bookmarkletCode, "ChromeBookmarklet");
+                    Toast.makeText(this, "Код закладки скопирован в буфер!", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Понятно", null)
+                .show();
     }
 
     private void setupSearch() {

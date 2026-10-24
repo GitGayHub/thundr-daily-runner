@@ -28,6 +28,20 @@
             android:textStyle="bold" />
 
         <Button
+            android:id="@+id/btnHelpChrome"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/btn_secondary"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="💡 Chrome"
+            android:textAllCaps="false"
+            android:textColor="@color/accent"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Button
             android:id="@+id/btnRefresh"
             android:layout_width="wrap_content"
             android:layout_height="36dp"

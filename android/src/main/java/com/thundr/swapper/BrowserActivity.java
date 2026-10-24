@@ -1,10 +1,14 @@
 package com.thundr.swapper;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.view.View;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -40,7 +44,17 @@ public class BrowserActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Hardware acceleration for video roulette / WebRTC
+        getWindow().setFlags(
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        );
+
         setContentView(R.layout.activity_browser);
+
+        // Request runtime permissions for Camera and Audio (WebRTC video roulette)
+        requestCameraAndAudioPermissions();
 
         // Read intent extras
         username = getIntent().getStringExtra(EXTRA_USERNAME);
@@ -67,6 +81,17 @@ public class BrowserActivity extends Activity {
         initWebView();
     }
 
+    private void requestCameraAndAudioPermissions() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.MODIFY_AUDIO_SETTINGS
+            }, 101);
+        }
+    }
+
     private void initWebView() {
         WebSettings ws = webView.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -77,7 +102,13 @@ public class BrowserActivity extends Activity {
         ws.setSupportZoom(true);
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false);
+        ws.setAllowFileAccess(true);
+        ws.setAllowContentAccess(true);
+
+        // CRITICAL FOR WEBRTC VIDEO ROULETTE: Allow autoplay without requiring user touch
         ws.setMediaPlaybackRequiresUserGesture(false);
+
+        // Chrome User Agent (Mobile Chrome 124)
         ws.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
 
         CookieManager.getInstance().setAcceptCookie(true);
@@ -92,6 +123,18 @@ public class BrowserActivity extends Activity {
                     progressBar.setVisibility(View.GONE);
                 }
             }
+
+            // CRITICAL FOR WEBRTC VIDEO ROULETTE: Grant Camera and Audio permissions to WebRTC
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> {
+                    try {
+                        request.grant(request.getResources());
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+            }
         });
 
         webView.setWebViewClient(new WebViewClient() {
@@ -105,7 +148,6 @@ public class BrowserActivity extends Activity {
                 injectSession(view);
                 if (!isReloadedWithSession && url != null && url.contains("thundr.com")) {
                     isReloadedWithSession = true;
-                    // Trigger reload after setting localStorage so Next.js hydrates with active user session
                     view.evaluateJavascript(
                             "(function() {" +
                             "  if (!window.__thundr_swapped) {" +
