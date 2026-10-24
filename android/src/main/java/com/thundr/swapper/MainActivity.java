@@ -412,6 +412,20 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     // --- OnAccountActionListener implementations ---
 
     @Override
+    public void onInstantLogin(AccountModel acc) {
+        Intent intent = new Intent(this, BrowserActivity.class);
+        intent.putExtra(BrowserActivity.EXTRA_USERNAME, acc.username);
+        intent.putExtra(BrowserActivity.EXTRA_USER_ID, acc.userId);
+        intent.putExtra(BrowserActivity.EXTRA_TOKEN, acc.hashedToken);
+        intent.putExtra(BrowserActivity.EXTRA_EMAIL, acc.username);
+        intent.putExtra(BrowserActivity.EXTRA_PASSWORD, acc.password);
+        intent.putExtra(BrowserActivity.EXTRA_BALANCE, acc.balance);
+        intent.putExtra(BrowserActivity.EXTRA_MINUTES, acc.minutes);
+        intent.putExtra(BrowserActivity.EXTRA_BOOKMARKLET, acc.getUserPayloadJson());
+        startActivity(intent);
+    }
+
+    @Override
     public void onOpenInChrome(AccountModel acc) {
         // Clipboard holds plain session JSON (fallback for the "s" bookmarklet).
         String json = acc.getUserPayloadJson();
