@@ -74,6 +74,19 @@ class ThundrAppHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
             self.wfile.write(content)
+        elif parsed.path in ("/thundr-swapper.apk", "/download/apk", "/app.apk"):
+            apk_path = BASE_DIR / "thundr-swapper.apk"
+            if apk_path.exists():
+                content = apk_path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.android.package-archive")
+                self.send_header("Content-Disposition", 'attachment; filename="thundr-swapper.apk"')
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+            else:
+                self.send_response(404)
+                self.end_headers()
         else:
             super().do_GET()
 
