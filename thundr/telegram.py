@@ -581,7 +581,7 @@ class TelegramNotifier:
             balances.append(int(val) if isinstance(val, (int, float)) else 0)
 
         total_balance = sum(balances)
-        total_minutes = calculate_boost_minutes(total_balance)
+        total_minutes = sum(calculate_boost_minutes(b) for b in balances)
         avg_balance = (total_balance / total_accounts) if total_accounts > 0 else 0.0
         avg_minutes = (total_minutes / total_accounts) if total_accounts > 0 else 0.0
 

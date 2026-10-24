@@ -1151,7 +1151,7 @@ def test_summary_report_150_plus_callout_and_short_50_plus():
     # Status must say 'всё чётко' because all 4/4 were claimed
     assert "Награда за 23.10:</b> ✅ Забрана со всех (4/4)" in report_claimed
     assert "✔ <b>Ошибки:</b> 0 (всё чётко)" in report_claimed
-    assert "💰 <b>Общий баланс:</b> 775 монет (13 мин) (+375)" in report_claimed
+    assert "💰 <b>Общий баланс:</b> 775 монет (6 мин) (+375)" in report_claimed
 
     # 50+ must be concise (count only, NO usernames listed)
     assert "🎁 <b>Сегодня выпало 50+:</b> 3 акк." in report_claimed
