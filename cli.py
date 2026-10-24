@@ -929,6 +929,98 @@ def daemon_command(interval: int, dry_run: bool) -> None:
     _run_supervisor(claim_interval_hours=interval, dry_run=dry_run, listen_only=False)
 
 
+@cli.command("open")
+@click.argument("username")
+def open_command(username: str) -> None:
+    """Open Chrome with an isolated temporary profile pre-logged into the specified account."""
+    from thundr.launcher import launch_chrome_with_account
+
+    account_mgr = AccountManager()
+    acc = account_mgr.get_account(username.strip())
+    if not acc:
+        console.print(f"[bold red]❌ Account '{username}' not found.[/bold red]")
+        sys.exit(1)
+
+    console.print(f"[bold cyan]🚀 Launching Chrome in temporary profile for '{acc.username}'...[/bold cyan]")
+    ok = launch_chrome_with_account(acc, temp_profile=True)
+    if ok:
+        console.print(f"[bold green]✔ Chrome launched successfully for '{acc.username}'![/bold green]")
+    else:
+        console.print("[bold red]❌ Failed to launch Chrome. Please ensure Google Chrome or Edge is installed.[/bold red]")
+
+
+@cli.command("app")
+@click.option("--port", "-p", default=8080, help="Port to bind server (default: 8080).")
+@click.option("--no-browser", is_flag=True, help="Do not open browser automatically on Windows.")
+def app_command(port: int, no_browser: bool) -> None:
+    """Run the Thundr Quick Switcher Web & Mobile app server for Windows and Android."""
+    from app import run_app
+    run_app(port=port, open_browser=not no_browser)
+
+
+@cli.command("sync")
+@click.option("--repo", default="GitGayHub/thundr-daily-runner", help="GitHub repository name.")
+def sync_command(repo: str) -> None:
+    """Download and synchronize latest account data from GitHub Actions."""
+    import subprocess
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    console.print(f"[bold cyan]🔄 Synchronizing accounts from GitHub Actions ({repo})...[/bold cyan]")
+    target_data_dir = Path("data")
+    target_data_dir.mkdir(parents=True, exist_ok=True)
+    target_file = target_data_dir / "accounts.json"
+
+    synced = False
+    if shutil.which("gh"):
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                res = subprocess.run(
+                    ["gh", "run", "download", "--repo", repo, "-n", "service-artifacts", "-D", tmp_dir],
+                    capture_output=True,
+                    text=True,
+                )
+                if res.returncode == 0:
+                    src_accounts = Path(tmp_dir) / "accounts.json"
+                    if src_accounts.exists():
+                        shutil.copy2(src_accounts, target_file)
+                        synced = True
+                        console.print(f"[bold green]✔ Successfully downloaded accounts.json from GitHub Actions via gh CLI![/bold green]")
+        except Exception as e:
+            logger.debug(f"gh CLI download failed: {e}")
+
+    if not synced:
+        token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+        if token:
+            try:
+                import io
+                import zipfile
+                headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+                url = f"https://api.github.com/repos/{repo}/actions/artifacts?name=service-artifacts&per_page=1"
+                resp = requests.get(url, headers=headers, timeout=15)
+                if resp.status_code == 200:
+                    artifacts = resp.json().get("artifacts", [])
+                    if artifacts:
+                        download_url = artifacts[0]["archive_download_url"]
+                        dl_resp = requests.get(download_url, headers=headers, timeout=30)
+                        if dl_resp.status_code == 200:
+                            z = zipfile.ZipFile(io.BytesIO(dl_resp.content))
+                            if "accounts.json" in z.namelist():
+                                z.extract("accounts.json", str(target_data_dir))
+                                synced = True
+                                console.print(f"[bold green]✔ Successfully downloaded accounts.json via GitHub API![/bold green]")
+            except Exception as e:
+                logger.debug(f"GitHub API download failed: {e}")
+
+    if synced:
+        mgr = AccountManager()
+        accs = mgr.list_accounts(enabled_only=False)
+        console.print(f"[bold green]✨ Synced {len(accs)} accounts locally![/bold green]")
+    else:
+        console.print("[yellow]⚠️ Could not download artifact from GitHub. Using existing local data/accounts.json.[/yellow]")
+
+
 cli.add_command(stats_coins_command, name="stats_coins")
 cli.add_command(stats_coins_command, name="coins")
 

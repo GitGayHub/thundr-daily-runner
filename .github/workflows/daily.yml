@@ -139,10 +139,11 @@ jobs:
         with:
           name: service-artifacts
           path: |
+            data/accounts.json
             data/history.json
             data/history.csv
           if-no-files-found: ignore
-          retention-days: 1
+          retention-days: 7
 
       - name: Send Failure Alert to Telegram
         if: failure()

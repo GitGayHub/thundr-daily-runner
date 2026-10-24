@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>⚡ Thundr Quick Switcher (Windows & Android)</title>
+  <meta name="theme-color" content="#0f172a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="/manifest.json">
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #151d30;
+      --card-border: #23304d;
+      --primary: #38bdf8;
+      --primary-hover: #0ea5e9;
+      --accent: #f59e0b;
+      --jackpot: #10b981;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding-bottom: 80px; }
+    
+    header {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      border-bottom: 1px solid var(--card-border);
+      padding: 12px 16px;
+    }
+    .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .logo { font-size: 1.25rem; font-weight: 800; display: flex; align-items: center; gap: 8px; color: var(--primary); }
+    .sync-btn {
+      background: #1e293b;
+      border: 1px solid var(--primary);
+      color: var(--primary);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .sync-btn:hover { background: var(--primary); color: #000; }
+
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .stat-pill {
+      background: #1e293b;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .stat-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 1.05rem; font-weight: 700; color: var(--text); margin-top: 2px; }
+
+    .search-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .search-input {
+      flex: 1;
+      background: #1e293b;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 0.95rem;
+      outline: none;
+    }
+    .search-input:focus { border-color: var(--primary); }
+
+    .filter-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      margin-top: 10px;
+      padding-bottom: 4px;
+    }
+    .tab {
+      background: #1e293b;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tab.active { background: var(--primary); color: #000; font-weight: 700; border-color: var(--primary); }
+
+    .container { max-width: 900px; margin: 16px auto; padding: 0 16px; }
+
+    .account-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    @media (min-width: 640px) {
+      .account-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (min-width: 900px) {
+      .account-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    .account-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+    .account-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .username { font-weight: 700; font-size: 1.05rem; color: #fff; word-break: break-all; }
+    
+    .badges { display: flex; gap: 6px; align-items: center; }
+    .badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 7px;
+      border-radius: 6px;
+    }
+    .badge-minutes { background: rgba(56, 189, 248, 0.2); color: var(--primary); border: 1px solid rgba(56, 189, 248, 0.4); }
+    .badge-jackpot { background: rgba(16, 185, 129, 0.2); color: var(--jackpot); border: 1px solid rgba(16, 185, 129, 0.5); }
+    .badge-streak { background: #334155; color: #cbd5e1; }
+
+    .card-body {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      line-height: 1.4;
+    }
+    .card-body span { color: var(--text); font-weight: 600; }
+
+    .card-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .btn {
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: background 0.15s;
+      text-decoration: none;
+    }
+    .btn-launch { background: var(--primary); color: #000; grid-column: span 2; }
+    .btn-launch:hover { background: var(--primary-hover); }
+    .btn-mobile-swap { background: #10b981; color: #000; }
+    .btn-mobile-swap:hover { background: #059669; }
+    .btn-bookmarklet { background: #334155; color: #fff; }
+    .btn-bookmarklet:hover { background: #475569; }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0f172a;
+      border: 1px solid var(--primary);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 30px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      z-index: 1000;
+      display: none;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      max-width: 500px;
+      width: 100%;
+      padding: 20px;
+      color: var(--text);
+    }
+    .modal-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 12px; }
+    .modal textarea {
+      width: 100%;
+      height: 120px;
+      background: #0b0f19;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 10px;
+      color: #38bdf8;
+      font-family: monospace;
+      font-size: 0.8rem;
+      margin-bottom: 12px;
+      resize: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-top">
+      <div class="logo">
+        <span>⚡</span> THUNDR SWAPPER
+      </div>
+      <button class="sync-btn" onclick="syncData()">
+        <span id="sync-icon">🔄</span> Синхронизация
+      </button>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat-pill">
+        <div class="stat-label">Аккаунты</div>
+        <div class="stat-value" id="stat-count">0</div>
+      </div>
+      <div class="stat-pill">
+        <div class="stat-label">Всего минут</div>
+        <div class="stat-value" id="stat-minutes">0 мин</div>
+      </div>
+      <div class="stat-pill">
+        <div class="stat-label">Общий баланс</div>
+        <div class="stat-value" id="stat-coins">0 🪙</div>
+      </div>
+    </div>
+
+    <div class="search-bar">
+      <input type="text" id="search-input" class="search-input" placeholder="Поиск по аккаунтам..." oninput="filterAccounts()">
+    </div>
+
+    <div class="filter-tabs">
+      <div class="tab active" onclick="setFilter('all', this)">Все</div>
+      <div class="tab" onclick="setFilter('jackpot', this)">🎰 Джекпот (7 дн.)</div>
+      <div class="tab" onclick="setFilter('minutes', this)">⏱️ Есть минуты (>0)</div>
+      <div class="tab" onclick="setFilter('ready', this)">🎁 Кейс доступен</div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="account-grid" id="account-grid">
+      <!-- Account cards rendered via JS -->
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- Modal for Android Bookmarklet Instructions -->
+  <div class="modal-overlay" id="bookmarklet-modal" onclick="closeModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-title">📱 Быстрый свап на Android</div>
+      <p style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 12px;">
+        1. Нажмите кнопку ниже, чтобы скопировать букмарклет.<br>
+        2. Откройте <b>https://thundr.com</b> в Chrome на телефоне.<br>
+        3. Вставьте этот код в адресную строку или сохраните в закладки.<br>
+        4. Страница мгновенно переключится на выбранный аккаунт!
+      </p>
+      <textarea id="bookmarklet-code" readonly></textarea>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-launch" onclick="copyModalBookmarklet()">📋 Скопировать букмарклет</button>
+        <button class="btn btn-bookmarklet" onclick="closeModal()">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allAccounts = [];
+    let currentFilter = 'all';
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.innerText = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 2500);
+    }
+
+    async function loadAccounts() {
+      try {
+        const resp = await fetch('/api/accounts');
+        if (resp.ok) {
+          allAccounts = await resp.json();
+          localStorage.setItem('cached_thundr_accounts', JSON.stringify(allAccounts));
+        } else {
+          throw new Error('API returned ' + resp.status);
+        }
+      } catch (err) {
+        console.warn('Loading from local cache:', err);
+        const cached = localStorage.getItem('cached_thundr_accounts');
+        if (cached) {
+          allAccounts = JSON.parse(cached);
+        }
+      }
+      renderStats();
+      filterAccounts();
+    }
+
+    function renderStats() {
+      document.getElementById('stat-count').innerText = allAccounts.length;
+      const totalCoins = allAccounts.reduce((acc, a) => acc + (a.balance || 0), 0);
+      const totalMinutes = allAccounts.reduce((acc, a) => acc + (a.minutes || 0), 0);
+      document.getElementById('stat-coins').innerText = totalCoins + ' 🪙';
+      document.getElementById('stat-minutes').innerText = totalMinutes + ' мин';
+    }
+
+    function setFilter(type, el) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      currentFilter = type;
+      filterAccounts();
+    }
+
+    function filterAccounts() {
+      const q = document.getElementById('search-input').value.toLowerCase().trim();
+      const grid = document.getElementById('account-grid');
+      grid.innerHTML = '';
+
+      const filtered = allAccounts.filter(a => {
+        const matchesQuery = a.username.toLowerCase().includes(q);
+        if (!matchesQuery) return false;
+
+        if (currentFilter === 'jackpot') return a.is_jackpot;
+        if (currentFilter === 'minutes') return (a.minutes || 0) > 0;
+        if (currentFilter === 'ready') return a.available;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #94a3b8; padding: 40px;">Аккаунты не найдены.</div>';
+        return;
+      }
+
+      filtered.forEach(acc => {
+        const card = document.createElement('div');
+        card.className = 'account-card';
+
+        const streakIcon = acc.is_jackpot ? '🎰' : '🔥';
+        const jackpotBadge = acc.is_jackpot ? '<span class="badge badge-jackpot">🎰 ДЖЕКПОТ</span>' : '';
+
+        card.innerHTML = `
+          <div>
+            <div class="card-header">
+              <span class="username">${acc.username}</span>
+              <div class="badges">
+                ${jackpotBadge}
+                <span class="badge badge-minutes">${acc.minutes} мин</span>
+              </div>
+            </div>
+            <div class="card-body">
+              💰 Баланс: <span>${acc.balance} монет</span><br>
+              ${streakIcon} Стрик: <span>${acc.streak} дн.</span> | Кейс: <span>${acc.available ? '✅ Доступен' : '⏳ В откате'}</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-launch" onclick="openWindowsChrome('${acc.username}')">
+              🚀 Открыть в Chrome (Windows)
+            </button>
+            <button class="btn btn-mobile-swap" onclick="swapMobileAccount('${acc.username}')">
+              📱 Быстрый свап
+            </button>
+            <button class="btn btn-bookmarklet" onclick="openBookmarkletModal('${acc.username}')">
+              📋 Букмарклет
+            </button>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    async function openWindowsChrome(username) {
+      showToast(`🚀 Запуск Chrome для ${username}...`);
+      try {
+        const resp = await fetch('/api/open', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: username })
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          showToast(`✅ Chrome открыт с аккаунтом ${username}!`);
+        } else {
+          showToast(`⚠️ Ошибка: ${data.error || 'не удалось запустить'}`);
+        }
+      } catch (e) {
+        showToast('⚠️ Ошибка подключения к локальному серверу');
+      }
+    }
+
+    function swapMobileAccount(username) {
+      const acc = allAccounts.find(a => a.username === username);
+      if (!acc) return;
+
+      const userPayload = {
+        id: acc.user_id,
+        hashed_token: acc.hashed_token,
+        email: acc.username,
+        username: acc.username
+      };
+
+      // Try setting localStorage if on same domain or mobile webview
+      try {
+        localStorage.setItem('user', JSON.stringify(userPayload));
+        sessionStorage.setItem('user', JSON.stringify(userPayload));
+      } catch (e) {}
+
+      // Open Thundr
+      window.open('https://thundr.com', '_blank');
+      showToast(`📱 Открываю Thundr для ${username}...`);
+    }
+
+    function openBookmarkletModal(username) {
+      const acc = allAccounts.find(a => a.username === username);
+      if (!acc) return;
+      document.getElementById('bookmarklet-code').value = acc.bookmarklet;
+      document.getElementById('bookmarklet-modal').style.display = 'flex';
+    }
+
+    function closeModal(e) {
+      document.getElementById('bookmarklet-modal').style.display = 'none';
+    }
+
+    function copyModalBookmarklet() {
+      const code = document.getElementById('bookmarklet-code').value;
+      navigator.clipboard.writeText(code).then(() => {
+        showToast('✅ Букмарклет скопирован в буфер обмена!');
+        closeModal();
+      });
+    }
+
+    async function syncData() {
+      const icon = document.getElementById('sync-icon');
+      icon.innerText = '⏳';
+      showToast('🔄 Синхронизация данных с GitHub...');
+      try {
+        const resp = await fetch('/api/sync', { method: 'POST' });
+        const res = await resp.json();
+        if (res.ok) {
+          showToast(`✅ Синхронизировано ${res.count || allAccounts.length} аккаунтов!`);
+          await loadAccounts();
+        } else {
+          showToast('⚠️ ' + (res.error || 'Ошибка синхронизации'));
+        }
+      } catch (err) {
+        showToast('⚠️ Ошибка синхронизации с сервером');
+      } finally {
+        icon.innerText = '🔄';
+      }
+    }
+
+    // Initialize
+    loadAccounts();
+  </script>
+</body>
+</html>

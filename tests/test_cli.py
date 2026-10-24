@@ -587,6 +587,44 @@ def test_cli_run_consumes_both_stats_and_stats_coins_simultaneously(
     assert mock_notifier.clear_stats_coins_requested.called
 
 
+@patch("thundr.launcher.launch_chrome_with_account")
+def test_cli_open_command(mock_launch, tmp_path, monkeypatch):
+    """Test cli open command launches Chrome for specified account."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    monkeypatch.delenv("THUNDR_USERNAME", raising=False)
+    monkeypatch.delenv("THUNDR_ACCOUNTS_JSON", raising=False)
+
+    runner = CliRunner()
+    runner.invoke(cli, ["add-account", "-u", "alice", "-p", "pwd"])
+
+    mock_launch.return_value = True
+    res = runner.invoke(cli, ["open", "alice"])
+    assert res.exit_code == 0
+    assert "Launching Chrome in temporary profile" in res.output
+    assert mock_launch.called
+
+
+def test_cli_open_nonexistent_account(tmp_path, monkeypatch):
+    """Test cli open on nonexistent account exits with error."""
+    test_acc_file = tmp_path / "accounts.json"
+    monkeypatch.setenv("ACCOUNTS_FILE", str(test_acc_file))
+    runner = CliRunner()
+    res = runner.invoke(cli, ["open", "ghost_account"])
+    assert res.exit_code != 0
+    assert "not found" in res.output
+
+
+@patch("subprocess.run")
+def test_cli_sync_command_fallback(mock_subproc, tmp_path, monkeypatch):
+    """Test cli sync command fallback if gh returns no artifact."""
+    mock_subproc.return_value = MagicMock(returncode=1)
+    runner = CliRunner()
+    res = runner.invoke(cli, ["sync"])
+    assert res.exit_code == 0
+    assert "Synchronizing accounts from GitHub Actions" in res.output
+
+
 
 
 
