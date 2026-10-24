@@ -1021,6 +1021,21 @@ def sync_command(repo: str) -> None:
         console.print("[yellow]⚠️ Could not download artifact from GitHub. Using existing local data/accounts.json.[/yellow]")
 
 
+@cli.command("export-mobile")
+def export_mobile_command() -> None:
+    """Export accounts with metadata, boost minutes, and tokens for mobile and PWA sync."""
+    from thundr.launcher import save_exported_accounts
+
+    mgr = AccountManager()
+    accounts = mgr.list_accounts(enabled_only=False)
+    payload = save_exported_accounts(accounts)
+    console.print(f"[bold green]✔ Exported {payload['total_accounts']} accounts![/bold green]")
+    console.print(f"💰 Всего монет: [bold]{payload['total_coins']}[/bold] | ⏱️ Минут: [bold]{payload['total_minutes']}[/bold]")
+    console.print(f"🕒 Время обновления: [bold]{payload['updated_at_display']}[/bold]")
+    console.print("📁 Сохранено в: data/accounts_export.json и android/src/main/assets/accounts.json")
+
+
+cli.add_command(export_mobile_command, name="export-accounts")
 cli.add_command(stats_coins_command, name="stats_coins")
 cli.add_command(stats_coins_command, name="coins")
 

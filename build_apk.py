@@ -91,12 +91,12 @@ def build():
     # 1. Update bundled accounts in assets
     print("[*] Updating assets/accounts.json...")
     from thundr.account import AccountManager
-    from thundr.launcher import export_accounts_for_mobile
+    from thundr.launcher import export_accounts_payload
     import json
 
     mgr = AccountManager()
     accs = mgr.list_accounts(enabled_only=False)
-    payload = export_accounts_for_mobile(accs)
+    payload = export_accounts_payload(accs)
     assets_dir = ANDROID_DIR / "src" / "main" / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
     (assets_dir / "accounts.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

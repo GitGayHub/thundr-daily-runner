@@ -258,3 +258,52 @@ def export_accounts_for_mobile(accounts: List[AccountRecord]) -> List[Dict[str, 
         return (-x["minutes"], -x["balance"], natural_sort_key(x["username"]))
 
     return sorted(result, key=sort_key)
+
+
+def export_accounts_payload(accounts: List[AccountRecord]) -> Dict[str, Any]:
+    """Format account records into a complete JSON payload with metadata and timestamps."""
+    from datetime import datetime, timezone
+    import time
+
+    export_list = export_accounts_for_mobile(accounts)
+    now_dt = datetime.now(timezone.utc)
+    now_iso = now_dt.isoformat()
+    now_epoch = int(time.time())
+
+    total_coins = sum(a.get("balance", 0) for a in export_list)
+    total_mins = sum(a.get("minutes", 0) for a in export_list)
+
+    return {
+        "updated_at": now_iso,
+        "updated_at_epoch": now_epoch,
+        "updated_at_display": now_dt.strftime("%d.%m.%Y %H:%M UTC"),
+        "total_accounts": len(export_list),
+        "total_coins": total_coins,
+        "total_minutes": total_mins,
+        "accounts": export_list,
+    }
+
+
+def save_exported_accounts(
+    accounts: List[AccountRecord],
+    paths: Optional[List[Path]] = None,
+) -> Dict[str, Any]:
+    """Save exported mobile data to files for app synchronization."""
+    payload = export_accounts_payload(accounts)
+    json_str = json.dumps(payload, indent=2, ensure_ascii=False)
+    list_json_str = json.dumps(payload["accounts"], indent=2, ensure_ascii=False)
+
+    if paths is None:
+        base_dir = Path(__file__).resolve().parent.parent
+        paths = [
+            base_dir / "data" / "accounts_export.json",
+            base_dir / "android" / "src" / "main" / "assets" / "accounts.json",
+        ]
+
+    for p in paths:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        # For android assets/accounts.json, write both format or payload
+        p.write_text(json_str, encoding="utf-8")
+
+    return payload
+

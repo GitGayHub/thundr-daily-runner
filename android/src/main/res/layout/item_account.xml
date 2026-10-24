@@ -2,10 +2,15 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@color/card_bg"
+    android:layout_marginStart="10dp"
+    android:layout_marginTop="6dp"
+    android:layout_marginEnd="10dp"
+    android:layout_marginBottom="6dp"
+    android:background="@drawable/card_bg"
     android:orientation="vertical"
     android:padding="12dp">
 
+    <!-- Top Row: Username + Jackpot Badge + Minutes Badge -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -17,30 +22,49 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
             android:text="gamasek13"
             android:textColor="@color/text_white"
-            android:textSize="15sp"
+            android:textSize="16sp"
             android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/itemJackpotBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/badge_jackpot"
+            android:paddingStart="8dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="3dp"
+            android:text="🎰 ДЖЕКПОТ"
+            android:textColor="@color/jackpot"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
 
         <TextView
             android:id="@+id/itemMinutesBadge"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="#1E293B"
-            android:paddingStart="8dp"
-            android:paddingTop="2dp"
-            android:paddingEnd="8dp"
-            android:paddingBottom="2dp"
-            android:text="3 мин"
+            android:background="@drawable/badge_minutes"
+            android:paddingStart="10dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="10dp"
+            android:paddingBottom="3dp"
+            android:text="⏱️ 3 мин"
             android:textColor="@color/primary"
-            android:textSize="12sp"
+            android:textSize="13sp"
             android:textStyle="bold" />
     </LinearLayout>
 
+    <!-- Middle Row: Balance, Streak & Status -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="6dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -49,9 +73,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="💰 385 монет | 🔥 8 дн."
+            android:text="💰 385 монет | 🔥 9 дн."
             android:textColor="@color/text_muted"
-            android:textSize="12sp" />
+            android:textSize="13sp" />
 
         <TextView
             android:id="@+id/itemStatus"
@@ -59,6 +83,53 @@
             android:layout_height="wrap_content"
             android:text="✅ Забран"
             android:textColor="#10B981"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Bottom Action Row: Chrome Launcher Buttons -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnOpenChrome"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_weight="2"
+            android:background="@drawable/btn_primary"
+            android:text="🚀 Chrome"
+            android:textAllCaps="false"
+            android:textColor="#000000"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnOpenIncognito"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1.4"
+            android:background="@drawable/btn_secondary"
+            android:text="🕶️ Инкогнито"
+            android:textAllCaps="false"
+            android:textColor="@color/text_white"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnCopyScript"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_secondary"
+            android:text="📋 Скрипт"
+            android:textAllCaps="false"
+            android:textColor="@color/text_muted"
             android:textSize="12sp" />
     </LinearLayout>
 

@@ -252,6 +252,10 @@
       </div>
     </div>
 
+    <div id="sync-time-bar" style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+      <span>🔄 GitHub:</span> <span id="sync-timestamp-text">загрузка данных...</span>
+    </div>
+
     <div class="stats-bar">
       <div class="stat-pill">
         <div class="stat-label">Аккаунты</div>
@@ -320,7 +324,15 @@
       try {
         const resp = await fetch('/api/accounts');
         if (resp.ok) {
-          allAccounts = await resp.json();
+          const raw = await resp.json();
+          if (Array.isArray(raw)) {
+            allAccounts = raw;
+          } else if (raw && raw.accounts) {
+            allAccounts = raw.accounts;
+            if (raw.updated_at_display) {
+              document.getElementById('sync-timestamp-text').innerText = raw.updated_at_display;
+            }
+          }
           localStorage.setItem('cached_thundr_accounts', JSON.stringify(allAccounts));
         } else {
           throw new Error('API returned ' + resp.status);

@@ -27,7 +27,11 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 from thundr.account import AccountManager
-from thundr.launcher import export_accounts_for_mobile, launch_chrome_with_account
+from thundr.launcher import (
+    export_accounts_for_mobile,
+    export_accounts_payload,
+    launch_chrome_with_account,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("thundr.app")
@@ -106,7 +110,7 @@ class ThundrAppHandler(http.server.SimpleHTTPRequestHandler):
     def _handle_api_accounts(self):
         mgr = AccountManager()
         accounts = mgr.list_accounts(enabled_only=False)
-        payload = export_accounts_for_mobile(accounts)
+        payload = export_accounts_payload(accounts)
         data = json.dumps(payload).encode("utf-8")
 
         self.send_response(200)

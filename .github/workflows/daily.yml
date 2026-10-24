@@ -43,7 +43,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -143,6 +143,20 @@ jobs:
             data/history.json
             data/history.csv
           if-no-files-found: ignore
+
+      - name: Export Mobile & Web App Data
+        if: always()
+        run: |
+          python cli.py export-mobile || true
+
+      - name: Commit and Push Updated Accounts Data
+        if: always()
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/accounts_export.json android/src/main/assets/accounts.json data/accounts.json
+          git diff --staged --quiet || (git commit -m "chore(data): auto-sync accounts, minutes, and balances [skip ci]" && git push)
           retention-days: 7
 
       - name: Send Failure Alert to Telegram
