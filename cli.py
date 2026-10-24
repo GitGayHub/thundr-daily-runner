@@ -603,6 +603,17 @@ def summary_command(no_telegram: bool) -> None:
     if not no_telegram and notifier.is_configured:
         _process_pending_telegram_updates(notifier, account_mgr)
 
+    # If any account has crate available to claim, execute claim first so available rewards are never left unclaimed!
+    any_available = any(
+        getattr(a.status, "available", False)
+        for a in accounts
+        if getattr(a, "status", None)
+    )
+    if any_available:
+        console.print("[bold cyan]⚡ Rewards are available! Executing claim for all accounts...[/bold cyan]")
+        _execute_rewards(dry_run=False, no_telegram=no_telegram, force_notify=True)
+        return
+
     summary_text = notifier.format_summary_report(accounts)
     console.print(summary_text)
     if not no_telegram and notifier.is_configured:
