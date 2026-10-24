@@ -704,7 +704,7 @@ class TelegramNotifier:
             date_claim_line,
             error_line,
             f"━━━━━━━━━━━━━━━━━━━",
-            f"💰 <b>Общий баланс:</b> {total_balance} монет" + (f" (+{total_coins_earned})" if total_coins_earned > 0 else ""),
+            f"💰 <b>Общий баланс:</b> {total_balance} монет ({total_minutes} мин)" + (f" (+{total_coins_earned})" if total_coins_earned > 0 else ""),
             f"📊 <b>В среднем на 1 аккаунт:</b> {avg_balance:.1f} монет ({avg_minutes:.1f} мин)",
             drop_50_line,
             f"🏆 <b>Топ-аккаунт:</b> <code>{html.escape(best_user)}</code> ({best_bal} монет, {best_mins} мин)",
@@ -893,6 +893,7 @@ class TelegramNotifier:
 
         total_accounts = len(accounts_data)
         total_balance = sum(b for _, b, _ in accounts_data)
+        total_minutes = sum(calculate_boost_minutes(b) for _, b, _ in accounts_data)
 
         lines = []
         for username, bal, streak in accounts_data:
@@ -906,7 +907,7 @@ class TelegramNotifier:
         env_label = self.get_execution_environment_label()
         base_header = (
             "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ</b>\n"
-            f"👥 Всего аккаунтов: <b>{total_accounts}</b> | 💰 Общий баланс: <b>{total_balance}</b> монет\n"
+            f"👥 Всего аккаунтов: <b>{total_accounts}</b> | 💰 Общий баланс: <b>{total_balance}</b> монет ({total_minutes} мин)\n"
             "━━━━━━━━━━━━━━━━━━━\n"
         )
         base_footer = f"\n━━━━━━━━━━━━━━━━━━━\n{env_label}"
@@ -940,7 +941,7 @@ class TelegramNotifier:
         for idx, chunk_text in enumerate(chunks, 1):
             part_header = (
                 f"📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ПО АККАУНТАМ ({idx}/{num_parts})</b>\n"
-                f"👥 Всего аккаунтов: <b>{total_accounts}</b> | 💰 Общий баланс: <b>{total_balance}</b> монет\n"
+                f"👥 Всего аккаунтов: <b>{total_accounts}</b> | 💰 Общий баланс: <b>{total_balance}</b> монет ({total_minutes} мин)\n"
                 "━━━━━━━━━━━━━━━━━━━\n"
             )
             part_footer = (

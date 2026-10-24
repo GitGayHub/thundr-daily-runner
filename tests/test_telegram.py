@@ -817,6 +817,7 @@ def test_telegram_7_day_jackpot_in_summary_report():
     )
 
     report = notifier.format_summary_report([c1, c2, c3])
+    assert "💰 <b>Общий баланс:</b> 270 монет (2 мин) (+100)" in report
     assert "🎰 <b>Сегодня джекпот:</b> 2 акк." in report
     assert "🎁 <b>Сегодня выпало 50+:</b> 2 акк." in report
     assert "В среднем на 1 аккаунт:</b> 90.0 монет (0.7 мин)" in report
@@ -1110,7 +1111,8 @@ def test_summary_report_150_plus_callout_and_short_50_plus():
         )
         for i in range(10)
     ]
-    report_unclaimed = notifier.format_summary_report(ctx_unclaimed)
+    ref_dt = datetime(2026, 10, 23, 14, 0, tzinfo=timezone.utc)
+    report_unclaimed = notifier.format_summary_report(ctx_unclaimed, now_dt=ref_dt)
     assert "Награда за 23.10:</b> ⏳ Ещё не забрана (0/10 — доступна!)" in report_unclaimed
     assert "Сбор ещё не запускался" in report_unclaimed
     assert "всё чётко" not in report_unclaimed
@@ -1144,11 +1146,12 @@ def test_summary_report_150_plus_callout_and_short_50_plus():
         final_balance=75,
         status=DailyCrateStatus(streak=2, last_claimed_on="2026-10-23", next_reset_at="2026-10-24T00:00:00Z"),
     )
-    report_claimed = notifier.format_summary_report([c1, c2, c3, c4])
+    report_claimed = notifier.format_summary_report([c1, c2, c3, c4], now_dt=ref_dt)
 
     # Status must say 'всё чётко' because all 4/4 were claimed
     assert "Награда за 23.10:</b> ✅ Забрана со всех (4/4)" in report_claimed
     assert "✔ <b>Ошибки:</b> 0 (всё чётко)" in report_claimed
+    assert "💰 <b>Общий баланс:</b> 775 монет (6 мин) (+375)" in report_claimed
 
     # 50+ must be concise (count only, NO usernames listed)
     assert "🎁 <b>Сегодня выпало 50+:</b> 3 акк." in report_claimed
