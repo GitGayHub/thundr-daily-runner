@@ -140,7 +140,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
     private void showChromeHelpDialog() {
         final String bookmarkletCode =
-            "javascript:(function(){navigator.clipboard.readText().then(t=>{if(t){localStorage.setItem('user',t);sessionStorage.setItem('user',t);location.reload();}}).catch(e=>{var p=prompt('JSON:');if(p){localStorage.setItem('user',p);sessionStorage.setItem('user',p);location.reload();}});})();";
+            "javascript:(function(){var m=location.hash.match(/tsw=([^&]+)/),t=null;if(m){try{t=atob(m[1].replace(/-/g,'+').replace(/_/g,'/'))}catch(e){}}function go(x){JSON.parse(x);localStorage.setItem('user',x);sessionStorage.setItem('user',x);location.replace('https://thundr.com/')}if(t){go(t)}else{navigator.clipboard.readText().then(go).catch(function(){var p=prompt('JSON:');if(p)go(p)})}})();";
 
         new android.app.AlertDialog.Builder(this)
                 .setTitle("💡 Свап в настоящем Google Chrome")
@@ -412,23 +412,17 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     // --- OnAccountActionListener implementations ---
 
     @Override
-    public void onInstantLogin(AccountModel acc) {
-        Intent intent = new Intent(this, BrowserActivity.class);
-        intent.putExtra(BrowserActivity.EXTRA_USERNAME, acc.username);
-        intent.putExtra(BrowserActivity.EXTRA_USER_ID, acc.userId);
-        intent.putExtra(BrowserActivity.EXTRA_TOKEN, acc.hashedToken);
-        intent.putExtra(BrowserActivity.EXTRA_EMAIL, acc.username);
-        intent.putExtra(BrowserActivity.EXTRA_BALANCE, acc.balance);
-        intent.putExtra(BrowserActivity.EXTRA_MINUTES, acc.minutes);
-        intent.putExtra(BrowserActivity.EXTRA_BOOKMARKLET, acc.bookmarklet);
-        startActivity(intent);
-    }
-
-    @Override
     public void onOpenInChrome(AccountModel acc) {
-        copyToClipboard(acc.bookmarklet, "ThundrSession");
+        // Clipboard holds plain session JSON (fallback for the "s" bookmarklet).
+        String json = acc.getUserPayloadJson();
+        copyToClipboard(json, "ThundrSession");
 
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com"));
+        // Session is also passed in the URL hash so the bookmarklet needs no clipboard permission.
+        String b64 = android.util.Base64.encodeToString(
+                json.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                android.util.Base64.URL_SAFE | android.util.Base64.NO_WRAP | android.util.Base64.NO_PADDING);
+
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://thundr.com/signin#tsw=" + b64));
         intent.setPackage("com.android.chrome");
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 

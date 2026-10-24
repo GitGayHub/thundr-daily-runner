@@ -15,7 +15,6 @@ import java.util.List;
 public class AccountAdapter extends BaseAdapter {
 
     public interface OnAccountActionListener {
-        void onInstantLogin(AccountModel account);
         void onOpenInChrome(AccountModel account);
     }
 
@@ -98,7 +97,6 @@ public class AccountAdapter extends BaseAdapter {
         TextView tvMinutesBadge = convertView.findViewById(R.id.itemMinutesBadge);
         TextView tvDetails = convertView.findViewById(R.id.itemDetails);
         TextView tvStatus = convertView.findViewById(R.id.itemStatus);
-        Button btnInstantLogin = convertView.findViewById(R.id.btnInstantLogin);
         Button btnOpenChrome = convertView.findViewById(R.id.btnOpenChrome);
 
         tvUsername.setText(acc.username);
@@ -122,11 +120,7 @@ public class AccountAdapter extends BaseAdapter {
         }
 
         convertView.setOnClickListener(v -> {
-            if (listener != null) listener.onInstantLogin(acc);
-        });
-
-        btnInstantLogin.setOnClickListener(v -> {
-            if (listener != null) listener.onInstantLogin(acc);
+            if (listener != null) listener.onOpenInChrome(acc);
         });
 
         btnOpenChrome.setOnClickListener(v -> {
