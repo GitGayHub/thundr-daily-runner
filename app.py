@@ -19,6 +19,16 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Dict
 
+# When started with pythonw.exe there is no console: send output to a log file
+if sys.stdout is None or sys.stderr is None:
+    _log_dir = Path(__file__).resolve().parent / "data"
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_fh = open(_log_dir / "server.log", "a", encoding="utf-8", buffering=1)
+    if sys.stdout is None:
+        sys.stdout = _log_fh
+    if sys.stderr is None:
+        sys.stderr = _log_fh
+
 # Fix Windows console cp1251 encoding issues with unicode characters
 if hasattr(sys.stdout, "reconfigure"):
     try:

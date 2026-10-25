@@ -397,6 +397,27 @@ def launch_clean_chrome(account: AccountRecord, url: str = "https://thundr.com")
 
     logger.info(f"Launching clean_browser for '{account.username}'")
     try:
+        if os.name == "nt":
+            # Run via Task Scheduler (/it) so the browser opens on the user's
+            # interactive desktop (WinSta0\Default), not in a hidden session.
+            import re
+            import time as _t
+            pyw = Path(python_exe).with_name("pythonw.exe")
+            runner = str(pyw if pyw.exists() else python_exe)
+            script = workspace_dir / "thundr" / "clean_browser.py"
+            tr = f'"{runner}" "{script}" "{account.username}" "{url or "https://thundr.com"}"'
+            safe = re.sub(r"[^A-Za-z0-9_]", "_", account.username)
+            task_name = f"ThundrOpen_{safe}_{int(_t.time())}"
+            r1 = subprocess.run(
+                ["schtasks", "/create", "/tn", task_name, "/tr", tr,
+                 "/sc", "once", "/st", "23:59", "/it", "/f"],
+                capture_output=True,
+            )
+            r2 = subprocess.run(["schtasks", "/run", "/tn", task_name], capture_output=True)
+            subprocess.run(["schtasks", "/delete", "/tn", task_name, "/f"], capture_output=True)
+            if r1.returncode == 0 and r2.returncode == 0:
+                return True
+            logger.warning("schtasks launch failed, falling back to Popen")
         subprocess.Popen(
             cmd,
             cwd=str(workspace_dir),
