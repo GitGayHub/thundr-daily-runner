@@ -51,10 +51,11 @@ def find_chrome_executable() -> Optional[str]:
 
 
 def create_session_injector_extension(account: AccountRecord, target_dir: Path) -> Path:
-    """Create an unpacked temporary Chromium extension that injects the account session.
+    """Create an unpacked Chromium extension that injects the account session into localStorage.
 
-    The extension runs at 'document_start' on https://thundr.com and https://id.thundr.com,
-    injecting the account's user session into localStorage before any page scripts execute.
+    Uses background service worker + chrome.tabs to reliably inject AFTER page load,
+    which works with React/Next.js apps that read localStorage after hydration.
+    Also includes content_scripts as belt-and-suspenders.
     """
     target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -73,20 +74,29 @@ def create_session_injector_extension(account: AccountRecord, target_dir: Path) 
 
     payload_json = json.dumps(user_payload)
 
-    # Manifest V3 for modern Chrome
+    # Manifest V3 with scripting + tabs permissions for reliable injection
     manifest = {
-        "name": f"Thundr Account Switcher - {username}",
+        "name": f"Thundr Session - {username}",
         "version": "1.0",
         "manifest_version": 3,
+        "permissions": ["scripting", "tabs", "storage"],
+        "host_permissions": [
+            "https://thundr.com/*",
+            "https://*.thundr.com/*",
+        ],
+        "background": {
+            "service_worker": "background.js"
+        },
         "content_scripts": [
             {
                 "matches": [
                     "https://thundr.com/*",
                     "https://*.thundr.com/*",
-                    "https://id.thundr.com/*",
                 ],
                 "js": ["inject.js"],
                 "run_at": "document_start",
+                "world": "MAIN",
+                "all_frames": False,
             }
         ],
     }
@@ -94,22 +104,54 @@ def create_session_injector_extension(account: AccountRecord, target_dir: Path) 
     manifest_file = target_dir / "manifest.json"
     manifest_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    # JavaScript that sets localStorage and sessionStorage
-    inject_js = f"""// Auto-injected session for Thundr account: {username}
+    # Content script — runs at document_start in MAIN world (before React reads localStorage)
+    inject_js = f"""// Thundr session injector for: {username}
 (function() {{
     const userPayload = {payload_json};
+    const payloadStr = JSON.stringify(userPayload);
     try {{
-        const payloadStr = JSON.stringify(userPayload);
         localStorage.setItem("user", payloadStr);
         sessionStorage.setItem("user", payloadStr);
-        console.log("[ThundrSwitcher] Injected session for {username}");
+        console.log("[ThundrSwitcher] Session pre-injected for {username}");
     }} catch (err) {{
-        console.error("[ThundrSwitcher] Failed to set localStorage:", err);
+        console.error("[ThundrSwitcher] inject failed:", err);
     }}
 }})();
 """
     inject_file = target_dir / "inject.js"
     inject_file.write_text(inject_js, encoding="utf-8")
+
+    # Background service worker — injects session then reloads page so React picks it up
+    background_js = f"""// Background service worker for Thundr session injection
+const PAYLOAD = {payload_json};
+const PAYLOAD_STR = JSON.stringify(PAYLOAD);
+const THUNDR_PATTERN = /^https:\\/\\/(www\\.)?thundr\\.com/;
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {{
+    if (changeInfo.status === 'complete' && tab.url && THUNDR_PATTERN.test(tab.url)) {{
+        chrome.scripting.executeScript({{
+            target: {{ tabId: tabId }},
+            world: 'MAIN',
+            func: (payloadStr) => {{
+                try {{
+                    // Only inject+reload if not already logged in
+                    var existing = localStorage.getItem('user');
+                    var alreadyReloaded = sessionStorage.getItem('__thundr_injected__');
+                    if (alreadyReloaded) return; // prevent reload loop
+                    localStorage.setItem('user', payloadStr);
+                    sessionStorage.setItem('user', payloadStr);
+                    sessionStorage.setItem('__thundr_injected__', '1');
+                    console.log('[ThundrBG] Session injected, reloading...');
+                    location.reload();
+                }} catch(e) {{}}
+            }},
+            args: [PAYLOAD_STR]
+        }}).catch(() => {{}});
+    }}
+}});
+"""
+    bg_file = target_dir / "background.js"
+    bg_file.write_text(background_js, encoding="utf-8")
 
     return target_dir
 
@@ -120,18 +162,7 @@ def launch_chrome_with_account(
     url: str = "https://thundr.com",
     auto_refresh_session: bool = True,
 ) -> bool:
-    """Launch Chrome in a temporary isolated profile with the account pre-authenticated.
-
-    Args:
-        account: The target AccountRecord.
-        temp_profile: If True, uses a temporary profile directory under %TEMP%.
-        url: The starting URL (default: https://thundr.com).
-        auto_refresh_session: If True and account lacks a valid session token,
-                              performs HTTP API login first to fetch one.
-
-    Returns:
-        True if Chrome was successfully launched, False otherwise.
-    """
+    """Launch Chrome in a dedicated profile with the account pre-authenticated."""
     chrome_exe = find_chrome_executable()
     if not chrome_exe:
         logger.error("Chrome or Chromium-based browser executable not found on system.")
@@ -149,38 +180,190 @@ def launch_chrome_with_account(
             except Exception as e:
                 logger.warning(f"Failed to auto-refresh session for '{account.username}': {e}")
 
-    # Set up profile directory
-    base_temp = Path(tempfile.gettempdir())
-    profile_dir = base_temp / f"thundr_profile_{account.username}"
+    # Set up profile directory in workspace data/profiles
+    workspace_dir = Path(__file__).resolve().parent.parent
+    profiles_base = workspace_dir / "data" / "profiles"
+    profile_dir = profiles_base / f"profile_{account.username}"
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    # Set up unpacked extension
+    # Clean up stale locks if any
+    for lock_name in ("lockfile", "SingletonLock", "SingletonCookie", "SingletonSocket"):
+        lock_file = profile_dir / lock_name
+        if lock_file.exists():
+            try:
+                lock_file.unlink()
+            except Exception:
+                pass
+
+    # Set up unpacked extension (kept as fallback)
     ext_dir = profile_dir / "thundr_extension"
     create_session_injector_extension(account, ext_dir)
 
-    cmd = [
-        chrome_exe,
-        f"--user-data-dir={profile_dir}",
-        f"--load-extension={ext_dir}",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--disable-background-networking",
-        "--disable-sync",
-        "--new-window",
-        url,
-    ]
+    # Find a free debug port
+    import socket as _socket
+    import time as _time
+
+    def _find_free_port(start=9300, end=9400):
+        for port in range(start, end):
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(("127.0.0.1", port))
+                    return port
+                except OSError:
+                    continue
+        return None
+
+    debug_port = _find_free_port()
+
+    bat_file = profile_dir / "launch.bat"
+    bat_content = f"""@echo off
+start "" "{chrome_exe}" --user-data-dir="{profile_dir}" --load-extension="{ext_dir}" --disable-extensions-except="{ext_dir}" --no-first-run --no-default-browser-check --remote-debugging-port={debug_port} --new-window "{url}"
+"""
+    bat_file.write_text(bat_content, encoding="utf-8")
 
     try:
-        logger.info(f"Launching Chrome for '{account.username}' in profile: {profile_dir}")
-        subprocess.Popen(
-            cmd,
-            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
-            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
-        )
-        return True
+        logger.info(f"Launching Chrome for '{account.username}' in profile: {profile_dir} (debug port: {debug_port})")
+        if os.name == "nt":
+            task_name = f"ThundrOpen_{account.username}_{int(_time.time())}"
+            bat_str = str(bat_file)
+            subprocess.run(
+                ["schtasks", "/create", "/tn", task_name, "/tr", bat_str,
+                 "/sc", "once", "/st", "00:00", "/it", "/f"],
+                capture_output=True, text=True
+            )
+            subprocess.run(["schtasks", "/run", "/tn", task_name], capture_output=True, text=True)
+            _time.sleep(2)
+            subprocess.run(["schtasks", "/delete", "/tn", task_name, "/f"], capture_output=True, text=True)
+
+            # Now inject session via CDP
+            if debug_port:
+                _inject_session_via_cdp(account, debug_port, url)
+
+            return True
+        else:
+            cmd = [
+                chrome_exe,
+                f"--user-data-dir={profile_dir}",
+                f"--load-extension={ext_dir}",
+                f"--disable-extensions-except={ext_dir}",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--new-window",
+                url,
+            ]
+            subprocess.Popen(cmd)
+            return True
     except Exception as exc:
         logger.error(f"Failed to launch Chrome for '{account.username}': {exc}")
         return False
+
+
+def _inject_session_via_cdp(account: AccountRecord, debug_port: int, url: str, max_wait: int = 15) -> bool:
+    """Connect to Chrome via CDP, inject session into localStorage, then reload."""
+    import asyncio as _asyncio
+    import time as _time
+
+    session = account.session
+    if not session:
+        return False
+
+    payload = {
+        "id": session.user_id,
+        "hashed_token": session.hashed_token,
+        "email": session.email or account.username,
+        "username": account.username,
+    }
+    payload_str = json.dumps(payload)
+
+    async def _do_inject():
+        try:
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                # Wait for Chrome to start listening
+                for _ in range(max_wait):
+                    try:
+                        browser = await p.chromium.connect_over_cdp(f"http://localhost:{debug_port}", timeout=2000)
+                        break
+                    except Exception:
+                        await _asyncio.sleep(1)
+                else:
+                    logger.warning(f"Could not connect to Chrome on port {debug_port}")
+                    return False
+
+                logger.info(f"Connected to Chrome on port {debug_port}")
+                ctx = browser.contexts[0] if browser.contexts else None
+                if not ctx:
+                    return False
+
+                # Wait for thundr page
+                thundr_page = None
+                for _ in range(10):
+                    for pg in ctx.pages:
+                        try:
+                            if "thundr.com" in pg.url or "blank" not in pg.url.lower():
+                                thundr_page = pg
+                                break
+                        except Exception:
+                            pass
+                    if thundr_page:
+                        break
+                    await _asyncio.sleep(1)
+
+                if not thundr_page and ctx.pages:
+                    thundr_page = ctx.pages[0]
+
+                if not thundr_page:
+                    logger.warning("No page found in Chrome")
+                    return False
+
+                # Wait for page load
+                try:
+                    await thundr_page.wait_for_load_state("domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
+                await _asyncio.sleep(1)
+
+                # Inject session
+                await thundr_page.evaluate(
+                    "(s) => { localStorage.setItem('user', s); sessionStorage.setItem('user', s); }",
+                    payload_str
+                )
+                logger.info(f"Session injected for '{account.username}' via CDP")
+
+                # Reload so React picks up the session
+                try:
+                    await thundr_page.reload(wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
+
+                logger.info(f"Page reloaded for '{account.username}'")
+
+                # Verify
+                user_ls = await thundr_page.evaluate("() => localStorage.getItem('user')")
+                if user_ls:
+                    logger.info(f"Verified: localStorage 'user' set for '{account.username}'")
+                else:
+                    logger.warning(f"localStorage 'user' empty after inject for '{account.username}'")
+
+                await browser.close()
+                return True
+        except Exception as e:
+            logger.error(f"CDP inject error: {e}")
+            return False
+
+    try:
+        loop = _asyncio.new_event_loop()
+        result = loop.run_until_complete(_do_inject())
+        loop.close()
+        return result
+    except Exception as e:
+        logger.error(f"Failed to run CDP inject: {e}")
+        return False
+
+
+def launch_clean_chrome(account: AccountRecord, url: str = "https://thundr.com") -> bool:
+    """Open a fresh clean Chrome (no cookies/profile) already logged into the account."""
+    return launch_chrome_with_account(account, temp_profile=True, url=url)
 
 
 def generate_bookmarklet(account: AccountRecord) -> str:

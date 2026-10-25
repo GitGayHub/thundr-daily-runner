@@ -31,6 +31,7 @@ from thundr.launcher import (
     export_accounts_for_mobile,
     export_accounts_payload,
     launch_chrome_with_account,
+    launch_clean_chrome,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -99,7 +100,9 @@ class ThundrAppHandler(http.server.SimpleHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else b""
 
-        if parsed.path == "/api/open":
+        if parsed.path == "/api/open-next":
+            self._handle_api_open_next()
+        elif parsed.path == "/api/open":
             self._handle_api_open(body)
         elif parsed.path == "/api/sync":
             self._handle_api_sync()
@@ -132,8 +135,8 @@ class ThundrAppHandler(http.server.SimpleHTTPRequestHandler):
             if not acc:
                 raise ValueError(f"Account '{username}' not found")
 
-            # Launch Chrome with isolated profile and session injection
-            ok = launch_chrome_with_account(acc, temp_profile=True)
+            # Launch a clean Chrome (no cookies/profile) logged into this account
+            ok = launch_clean_chrome(acc)
             resp_payload = {"ok": ok, "username": username}
             if not ok:
                 resp_payload["error"] = "Failed to launch Chrome executable"
@@ -145,6 +148,35 @@ class ThundrAppHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _handle_api_open_next(self):
+        """Open the next account in a clean Chrome (single-button flow)."""
+        try:
+            mgr = AccountManager()
+            accounts = [a for a in mgr.list_accounts(enabled_only=False) if a.session and a.session.hashed_token]
+            if not accounts:
+                raise ValueError("No accounts with a session")
+            state_file = BASE_DIR / "data" / "next_index.txt"
+            try:
+                idx = int(state_file.read_text().strip())
+            except Exception:
+                idx = 0
+            acc = accounts[idx % len(accounts)]
+            state_file.write_text(str((idx + 1) % len(accounts)))
+            ok = launch_clean_chrome(acc)
+            resp_payload = {"ok": ok, "username": acc.username, "number": idx % len(accounts) + 1, "total": len(accounts)}
+            if not ok:
+                resp_payload["error"] = "Failed to launch Chrome"
+        except Exception as e:
+            logger.error(f"Error handling /api/open-next: {e}")
+            resp_payload = {"ok": False, "error": str(e)}
+
+        data = json.dumps(resp_payload).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -226,5 +258,5 @@ def run_app(port: int = 8080, open_browser: bool = True):
 
 
 if __name__ == "__main__":
-    port_arg = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8080
+    port_arg = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8888
     run_app(port=port_arg, open_browser=True)

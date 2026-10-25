@@ -157,30 +157,29 @@
     .card-body span { color: var(--text); font-weight: 600; }
 
     .card-actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
+      display: flex;
+      flex-direction: column;
       gap: 6px;
+      margin-top: 8px;
     }
     .btn {
-      padding: 8px 10px;
-      border-radius: 8px;
-      font-size: 0.8rem;
+      padding: 11px 14px;
+      border-radius: 9px;
+      font-size: 0.92rem;
       font-weight: 700;
       border: none;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 4px;
-      transition: background 0.15s;
+      gap: 6px;
+      transition: background 0.15s, transform 0.1s;
       text-decoration: none;
+      width: 100%;
     }
-    .btn-launch { background: var(--primary); color: #000; grid-column: span 2; }
+    .btn:active { transform: scale(0.98); }
+    .btn-launch { background: var(--primary); color: #000; }
     .btn-launch:hover { background: var(--primary-hover); }
-    .btn-mobile-swap { background: #10b981; color: #000; }
-    .btn-mobile-swap:hover { background: #059669; }
-    .btn-bookmarklet { background: #334155; color: #fff; }
-    .btn-bookmarklet:hover { background: #475569; }
 
     .toast {
       position: fixed;
@@ -406,13 +405,7 @@
           </div>
           <div class="card-actions">
             <button class="btn btn-launch" onclick="openWindowsChrome('${acc.username}')">
-              🚀 Открыть в Chrome (Windows)
-            </button>
-            <button class="btn btn-mobile-swap" onclick="swapMobileAccount('${acc.username}')">
-              📱 Быстрый свап
-            </button>
-            <button class="btn btn-bookmarklet" onclick="openBookmarkletModal('${acc.username}')">
-              📋 Букмарклет
+              🚀 Войти в аккаунт
             </button>
           </div>
         `;
