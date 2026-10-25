@@ -345,7 +345,7 @@ def _inject_session_via_cdp(account: AccountRecord, debug_port: int, url: str, m
                 else:
                     logger.warning(f"localStorage 'user' empty after inject for '{account.username}'")
 
-                await browser.close()
+                await browser.disconnect()
                 return True
         except Exception as e:
             logger.error(f"CDP inject error: {e}")
@@ -363,7 +363,50 @@ def _inject_session_via_cdp(account: AccountRecord, debug_port: int, url: str, m
 
 def launch_clean_chrome(account: AccountRecord, url: str = "https://thundr.com") -> bool:
     """Open a fresh clean Chrome (no cookies/profile) already logged into the account."""
-    return launch_chrome_with_account(account, temp_profile=True, url=url)
+    session = account.session
+    if not session or not session.hashed_token:
+        if account.has_credentials and account.password:
+            try:
+                from thundr.client import ThundrApiClient
+                api = ThundrApiClient()
+                session = api.login(account.username, account.password)
+                account.session = session
+            except Exception as e:
+                logger.warning(f"Failed to auto-refresh session for '{account.username}': {e}")
+
+    if not session:
+        logger.error(f"Cannot launch clean Chrome: missing session for '{account.username}'")
+        return False
+
+    payload = {
+        "id": session.user_id,
+        "hashed_token": session.hashed_token,
+        "email": session.email or account.username,
+        "username": account.username,
+    }
+
+    import sys
+    import subprocess
+    import os
+    python_exe = sys.executable
+    workspace_dir = Path(__file__).resolve().parent.parent
+    cmd = [python_exe, "-m", "thundr.clean_browser", account.username, url or "https://thundr.com"]
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(workspace_dir)
+
+    logger.info(f"Launching clean_browser for '{account.username}'")
+    try:
+        subprocess.Popen(
+            cmd,
+            cwd=str(workspace_dir),
+            env=env,
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to launch clean_browser: {e}")
+        return launch_chrome_with_account(account, temp_profile=True, url=url)
 
 
 def generate_bookmarklet(account: AccountRecord) -> str:
