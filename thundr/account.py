@@ -239,43 +239,49 @@ class AccountManager:
             except Exception as e:
                 logger.error(f"Error reading {self.filepath}: {e}")
 
-        # 2. Check JSON array env var (THUNDR_ACCOUNTS_JSON) - great for CI/CD Secrets
-        env_json = os.getenv("THUNDR_ACCOUNTS_JSON")
-        if env_json and env_json.strip():
-            try:
-                items = json.loads(env_json)
-                if isinstance(items, list):
-                    for item in items:
-                        if isinstance(item, dict) and item.get("username"):
-                            rec = AccountRecord.from_dict(item)
-                            # Overwrite or merge
-                            key = rec.username.lower()
-                            if key in self._accounts:
-                                existing = self._accounts[key]
-                                if rec.password:
-                                    existing.password = rec.password
-                                if rec.session:
-                                    existing.session = rec.session
-                                if rec.last_status:
-                                    if existing.last_status is None:
-                                        existing.last_status = rec.last_status
-                                    elif rec.last_status.server_now and existing.last_status.server_now:
-                                        if rec.last_status.server_now > existing.last_status.server_now:
+        # 2. Check JSON array env var (THUNDR_ACCOUNTS_JSON and chunked THUNDR_ACCOUNTS_JSON_*)
+        json_env_keys = ["THUNDR_ACCOUNTS_JSON"]
+        for k in sorted(os.environ.keys()):
+            if k.startswith("THUNDR_ACCOUNTS_JSON_") and k not in json_env_keys:
+                json_env_keys.append(k)
+
+        for env_key in json_env_keys:
+            env_json = os.getenv(env_key)
+            if env_json and env_json.strip():
+                try:
+                    items = json.loads(env_json)
+                    if isinstance(items, list):
+                        for item in items:
+                            if isinstance(item, dict) and item.get("username"):
+                                rec = AccountRecord.from_dict(item)
+                                # Overwrite or merge
+                                key = rec.username.lower()
+                                if key in self._accounts:
+                                    existing = self._accounts[key]
+                                    if rec.password:
+                                        existing.password = rec.password
+                                    if rec.session:
+                                        existing.session = rec.session
+                                    if rec.last_status:
+                                        if existing.last_status is None:
                                             existing.last_status = rec.last_status
-                                    elif (rec.last_status.last_claimed_on or "") > (existing.last_status.last_claimed_on or ""):
-                                        existing.last_status = rec.last_status
-                                if rec.last_reward_coins is not None:
-                                    if existing.last_reward_coins is None:
-                                        existing.last_reward_coins = rec.last_reward_coins
-                                if rec.last_claimed_at and not existing.last_claimed_at:
-                                    existing.last_claimed_at = rec.last_claimed_at
-                                if rec.last_checked_at and not existing.last_checked_at:
-                                    existing.last_checked_at = rec.last_checked_at
-                            else:
-                                self._accounts[key] = rec
-                    logger.info(f"Merged accounts from THUNDR_ACCOUNTS_JSON (total: {len(self._accounts)})")
-            except Exception as e:
-                logger.error(f"Failed to parse THUNDR_ACCOUNTS_JSON: {e}")
+                                        elif rec.last_status.server_now and existing.last_status.server_now:
+                                            if rec.last_status.server_now > existing.last_status.server_now:
+                                                existing.last_status = rec.last_status
+                                        elif (rec.last_status.last_claimed_on or "") > (existing.last_status.last_claimed_on or ""):
+                                            existing.last_status = rec.last_status
+                                    if rec.last_reward_coins is not None:
+                                        if existing.last_reward_coins is None:
+                                            existing.last_reward_coins = rec.last_reward_coins
+                                    if rec.last_claimed_at and not existing.last_claimed_at:
+                                        existing.last_claimed_at = rec.last_claimed_at
+                                    if rec.last_checked_at and not existing.last_checked_at:
+                                        existing.last_checked_at = rec.last_checked_at
+                                else:
+                                    self._accounts[key] = rec
+                        logger.info(f"Merged accounts from {env_key} (total: {len(self._accounts)})")
+                except Exception as e:
+                    logger.error(f"Failed to parse {env_key}: {e}")
 
         # 3. Check single account environment variables
         env_user = os.getenv("THUNDR_USERNAME")

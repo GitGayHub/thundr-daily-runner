@@ -85,6 +85,9 @@ jobs:
       - name: Run Scheduled Service
         env:
           THUNDR_ACCOUNTS_JSON: ${{ secrets.THUNDR_ACCOUNTS_JSON }}
+          THUNDR_ACCOUNTS_JSON_1: ${{ secrets.THUNDR_ACCOUNTS_JSON_1 }}
+          THUNDR_ACCOUNTS_JSON_2: ${{ secrets.THUNDR_ACCOUNTS_JSON_2 }}
+          THUNDR_ACCOUNTS_JSON_3: ${{ secrets.THUNDR_ACCOUNTS_JSON_3 }}
           THUNDR_USERNAME: ${{ secrets.THUNDR_USERNAME }}
           THUNDR_PASSWORD: ${{ secrets.THUNDR_PASSWORD }}
           THUNDR_USER_ID: ${{ secrets.THUNDR_USER_ID }}
