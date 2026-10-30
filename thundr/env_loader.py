@@ -24,7 +24,11 @@ def load_project_env(override: bool = True) -> None:
                     key = key.strip()
                     val = val.strip().strip("'\"")
                     if override or key not in os.environ:
-                        os.environ[key] = val
+                        try:
+                            os.environ[key] = val
+                        except (ValueError, OSError):
+                            # Skip variables exceeding OS limits (e.g. Windows 32767 chars)
+                            pass
     except Exception:
         pass
 

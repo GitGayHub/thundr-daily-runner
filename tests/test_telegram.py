@@ -1165,6 +1165,41 @@ def test_summary_report_150_plus_callout_and_short_50_plus():
     assert "🏆 <b>Топ-аккаунт:</b> <code>lucky2</code> (300 монет, 3 мин)" in report_claimed
 
 
+def test_telegram_429_retry_success():
+    notifier = TelegramNotifier(bot_token="test_token", chat_id="12345")
+    with patch("requests.post") as mock_post:
+        resp_429 = MagicMock()
+        resp_429.status_code = 429
+        resp_429.json.return_value = {"ok": False, "parameters": {"retry_after": 1}}
+        resp_429.headers = {}
+
+        resp_200 = MagicMock()
+        resp_200.status_code = 200
+
+        mock_post.side_effect = [resp_429, resp_200]
+
+        res = notifier.send_raw_message("test message")
+        assert res is True
+        assert mock_post.call_count == 2
+        headers = mock_post.call_args[1]["headers"]
+        assert "TelegramNotifier" in headers["User-Agent"]
+
+
+def test_telegram_get_updates_409_conflict():
+    notifier = TelegramNotifier(bot_token="test_token", chat_id="12345")
+    with patch("requests.get") as mock_get:
+        resp_409 = MagicMock()
+        resp_409.status_code = 409
+        resp_409.text = "Conflict: terminated by other getUpdates"
+        mock_get.return_value = resp_409
+
+        res = notifier.get_updates()
+        assert res == []
+        assert mock_get.call_count == 1
+        headers = mock_get.call_args[1]["headers"]
+        assert "TelegramNotifier" in headers["User-Agent"]
+
+
 
 
 

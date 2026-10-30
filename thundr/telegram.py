@@ -9,6 +9,7 @@ import html
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -103,6 +104,8 @@ class TelegramNotifier:
         except Exception:
             logger.warning(f"Could not load timezone '{self.tz_name}', falling back to UTC.")
             self.tz = timezone.utc
+
+        self._last_send_ts = 0.0
 
     def _get_state(self) -> Dict[str, Any]:
         if self.state_file.exists():
@@ -202,8 +205,16 @@ class TelegramNotifier:
             return f"+{coins} монет"
         return "нет данных"
 
-    def send_raw_message(self, text: str, parse_mode: Optional[str] = "HTML") -> bool:
-        """Send message via Telegram Bot API with fallback for parse errors."""
+    MIN_SEND_INTERVAL: float = 1.0
+    DEFAULT_USER_AGENT: str = "TelegramNotifier/2.0 (compatible; NotificationHub/1.0)"
+
+    def send_raw_message(
+        self,
+        text: str,
+        parse_mode: Optional[str] = "HTML",
+        max_retries: int = 3,
+    ) -> bool:
+        """Send message via Telegram Bot API with flood prevention, 429 retry backoff and fallback."""
         if not self.is_configured:
             logger.debug("Telegram credentials not configured; skipping notification.")
             return False
@@ -217,27 +228,79 @@ class TelegramNotifier:
         if parse_mode:
             payload["parse_mode"] = parse_mode
 
-        try:
-            resp = requests.post(url, json=payload, timeout=15)
-            if resp.status_code == 200:
-                logger.info("Telegram notification sent successfully.")
-                return True
-            elif resp.status_code == 400 and parse_mode:
-                # Potential parse error, retry in plain text
-                logger.warning(f"Telegram parse error ({resp.text}), retrying with plain text...")
-                plain_payload = {
-                    "chat_id": self.chat_id,
-                    "text": text.replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", ""),
-                    "disable_web_page_preview": True,
-                }
-                retry_resp = requests.post(url, json=plain_payload, timeout=15)
-                return retry_resp.status_code == 200
-            else:
-                logger.error(f"Failed to send Telegram message (HTTP {resp.status_code}): {resp.text}")
+        headers = {
+            "User-Agent": self.DEFAULT_USER_AGENT,
+        }
+
+        # Anti-flood pacing: avoid blasting messages faster than safe limit (skip in pytest)
+        is_testing = bool(os.getenv("PYTEST_CURRENT_TEST"))
+        for attempt in range(max_retries):
+            if not is_testing:
+                now = time.time()
+                elapsed = now - getattr(self, "_last_send_ts", 0.0)
+                if elapsed < self.MIN_SEND_INTERVAL:
+                    time.sleep(self.MIN_SEND_INTERVAL - elapsed)
+
+            try:
+                resp = requests.post(url, json=payload, headers=headers, timeout=15)
+                self._last_send_ts = time.time()
+
+                if resp.status_code == 200:
+                    logger.info("Telegram notification sent successfully.")
+                    return True
+
+                elif resp.status_code == 429:
+                    # Telegram Flood Control: rate limit hit
+                    retry_after = 5
+                    try:
+                        err_data = resp.json()
+                        retry_after = int(err_data.get("parameters", {}).get("retry_after", 5))
+                    except Exception:
+                        pass
+                    if "Retry-After" in getattr(resp, "headers", {}):
+                        try:
+                            retry_after = max(retry_after, int(resp.headers["Retry-After"]))
+                        except Exception:
+                            pass
+                    logger.warning(
+                        f"Telegram Flood Control (HTTP 429): waiting {retry_after}s before retry (attempt {attempt + 1}/{max_retries})..."
+                    )
+                    if not is_testing:
+                        time.sleep(retry_after + 0.5)
+                    continue
+
+                elif resp.status_code == 400 and parse_mode:
+                    # Potential parse error, retry in plain text
+                    logger.warning(f"Telegram parse error ({resp.text}), retrying with plain text...")
+                    plain_payload = {
+                        "chat_id": self.chat_id,
+                        "text": text.replace("<b>", "").replace("</b>", "").replace("<code>", "").replace("</code>", ""),
+                        "disable_web_page_preview": True,
+                    }
+                    retry_resp = requests.post(url, json=plain_payload, headers=headers, timeout=15)
+                    self._last_send_ts = time.time()
+                    return retry_resp.status_code == 200
+
+                elif resp.status_code == 409:
+                    logger.warning(f"Telegram 409 Conflict: webhook or other instance active ({resp.text}).")
+                    return False
+
+                elif resp.status_code in (401, 403):
+                    logger.error(
+                        f"Telegram bot authorization error (HTTP {resp.status_code}): {resp.text}. "
+                        "Check if bot token was revoked or bot was blocked."
+                    )
+                    return False
+
+                else:
+                    logger.error(f"Failed to send Telegram message (HTTP {resp.status_code}): {resp.text}")
+                    return False
+
+            except Exception as e:
+                logger.error(f"Telegram network error: {e}")
                 return False
-        except Exception as e:
-            logger.error(f"Telegram network error: {e}")
-            return False
+
+        return False
 
     @staticmethod
     def get_execution_environment_label() -> str:
@@ -972,7 +1035,10 @@ class TelegramNotifier:
 
         messages = self.format_stats_minutes_breakdown(items)
         all_ok = True
-        for msg in messages:
+        is_testing = bool(os.getenv("PYTEST_CURRENT_TEST"))
+        for i, msg in enumerate(messages):
+            if i > 0 and not is_testing:
+                time.sleep(self.MIN_SEND_INTERVAL)
             ok = self.send_raw_message(msg)
             if not ok:
                 all_ok = False
@@ -986,7 +1052,10 @@ class TelegramNotifier:
 
         messages = self.format_stats_coins_breakdown(items)
         all_ok = True
-        for msg in messages:
+        is_testing = bool(os.getenv("PYTEST_CURRENT_TEST"))
+        for i, msg in enumerate(messages):
+            if i > 0 and not is_testing:
+                time.sleep(self.MIN_SEND_INTERVAL)
             ok = self.send_raw_message(msg)
             if not ok:
                 all_ok = False
@@ -999,19 +1068,46 @@ class TelegramNotifier:
         return self.send_stats_minutes_breakdown(items)
 
     def get_updates(self, offset: Optional[int] = None, timeout: int = 5) -> List[Dict[str, Any]]:
-        """Fetch incoming Telegram updates via long polling."""
+        """Fetch incoming Telegram updates via long polling with conflict and rate-limit backoff."""
         if not self.is_configured:
             return []
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         params: Dict[str, Any] = {"timeout": timeout}
         if offset is not None:
             params["offset"] = offset
+
+        headers = {
+            "User-Agent": self.DEFAULT_USER_AGENT,
+        }
+
+        is_testing = bool(os.getenv("PYTEST_CURRENT_TEST"))
         try:
-            resp = requests.get(url, params=params, timeout=timeout + 5)
+            resp = requests.get(url, params=params, headers=headers, timeout=timeout + 5)
             if resp.status_code == 200:
                 data = resp.json()
                 if data.get("ok"):
                     return data.get("result", [])
+            elif resp.status_code == 409:
+                logger.warning(
+                    "Telegram 409 Conflict in getUpdates: another bot instance is polling or webhook is active. "
+                    "Backing off for 15s to avoid bot ban."
+                )
+                if not is_testing:
+                    time.sleep(15)
+            elif resp.status_code == 429:
+                retry_after = 5
+                try:
+                    retry_after = int(resp.json().get("parameters", {}).get("retry_after", 5))
+                except Exception:
+                    pass
+                logger.warning(f"Telegram 429 in getUpdates: backing off for {retry_after}s.")
+                if not is_testing:
+                    time.sleep(retry_after + 0.5)
+            elif resp.status_code in (401, 403):
+                logger.error(
+                    f"Telegram getUpdates authorization failed (HTTP {resp.status_code}): {resp.text}. "
+                    "Bot token may be revoked or deleted."
+                )
         except Exception as e:
             logger.debug(f"Failed to fetch Telegram updates: {e}")
         return []
