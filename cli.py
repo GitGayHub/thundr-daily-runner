@@ -83,7 +83,7 @@ def _process_pending_telegram_updates(
         offset = notifier.get_last_update_id()
         if offset is not None:
             offset += 1
-        updates = notifier.get_updates(offset=offset, timeout=2)
+        updates = notifier.get_updates(offset=offset, timeout=0)
         if not updates:
             return
         accounts = account_mgr.list_accounts(enabled_only=True)
@@ -140,8 +140,8 @@ def _execute_rewards(
     client = ThundrClient(api_client, browser_client)
     state_machine = DailyCrateStateMachine(client)
 
-    # Process any pending telegram commands if Telegram is configured
-    if telegram_notifier and telegram_notifier.is_configured:
+    # Process any pending telegram commands once before run if not in CI
+    if telegram_notifier and telegram_notifier.is_configured and os.getenv("GITHUB_ACTIONS") != "true":
         _process_pending_telegram_updates(telegram_notifier, account_mgr, client)
 
     results = []

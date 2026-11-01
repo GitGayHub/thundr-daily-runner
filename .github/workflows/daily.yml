@@ -1,5 +1,5 @@
 name: Scheduled Runner
- 
+
 on:
   schedule:
     # Run every hour at minute 5 to ensure rewards are claimed promptly after 00:00 UTC reset
@@ -23,20 +23,20 @@ on:
         required: false
         default: false
       notify_mode:
-        description: 'Telegram notification mode (summary, all, rewards_only, errors_only, digest_2x)'
+        description: 'Telegram notification mode (digest_2x, summary, all, rewards_only, errors_only)'
         type: choice
         options:
+          - digest_2x
           - summary
           - all
           - rewards_only
           - errors_only
-          - digest_2x
-        default: summary
+        default: digest_2x
       force_notify:
         description: 'Force Telegram summary notification even if throttled?'
         type: boolean
         required: false
-        default: true
+        default: false
 
 concurrency:
   group: runner-daily-${{ github.ref }}
@@ -93,9 +93,13 @@ jobs:
           THUNDR_PASSWORD: ${{ secrets.THUNDR_PASSWORD }}
           THUNDR_USER_ID: ${{ secrets.THUNDR_USER_ID }}
           THUNDR_HASHED_TOKEN: ${{ secrets.THUNDR_HASHED_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TELEGRAM_MODE: ${{ inputs.notify_mode || secrets.TELEGRAM_MODE || 'summary' }}
+          THUNDR_TELEGRAM_BOT_TOKEN: ${{ secrets.THUNDR_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          THUNDR_TELEGRAM_CHAT_ID: ${{ secrets.THUNDR_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          THUNDR_TELEGRAM_MODE: ${{ inputs.notify_mode || secrets.TELEGRAM_MODE || 'digest_2x' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.THUNDR_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.THUNDR_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_MODE: ${{ inputs.notify_mode || secrets.TELEGRAM_MODE || 'digest_2x' }}
+          THUNDR_POLL_IN_CI: 'false'
           APP_TIMEZONE: Europe/Berlin
           HEADLESS_BROWSER: 'true'
         run: |
@@ -105,9 +109,9 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
-          FORCE_FLAG="--force-notify"
-          if [ "${{ inputs.force_notify }}" = "false" ]; then
-            FORCE_FLAG=""
+          FORCE_FLAG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_notify }}" = "true" ]; then
+            FORCE_FLAG="--force-notify"
           fi
 
           if [ "$ACTION" = "goal" ]; then
@@ -166,17 +170,14 @@ jobs:
         if: failure()
         continue-on-error: true
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          THUNDR_TELEGRAM_BOT_TOKEN: ${{ secrets.THUNDR_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          THUNDR_TELEGRAM_CHAT_ID: ${{ secrets.THUNDR_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.THUNDR_TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.THUNDR_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
         run: |
           python -c "
-          import os, requests
-          token = os.getenv('TELEGRAM_BOT_TOKEN')
-          chat_id = os.getenv('TELEGRAM_CHAT_ID')
-          if token and chat_id:
-              text = '❌ <b>Daily Runner — Ошибка в GitHub Actions!</b>\n\nЗапуск завершился с ошибкой. Проверьте логи во вкладке Actions.'
-              try:
-                  requests.post(f'https://api.telegram.org/bot{token}/sendMessage', json={'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}, timeout=10)
-              except Exception:
-                  pass
+          from thundr.telegram import TelegramNotifier
+          tg = TelegramNotifier()
+          if tg.is_configured:
+              tg.send_raw_message('❌ <b>Daily Runner — Ошибка в GitHub Actions!</b>\n\nЗапуск завершился с ошибкой. Проверьте логи во вкладке Actions.')
           "

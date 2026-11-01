@@ -1182,7 +1182,7 @@ def test_telegram_429_retry_success():
         assert res is True
         assert mock_post.call_count == 2
         headers = mock_post.call_args[1]["headers"]
-        assert "TelegramNotifier" in headers["User-Agent"]
+        assert "Mozilla/5.0" in headers["User-Agent"]
 
 
 def test_telegram_get_updates_409_conflict():
@@ -1197,7 +1197,7 @@ def test_telegram_get_updates_409_conflict():
         assert res == []
         assert mock_get.call_count == 1
         headers = mock_get.call_args[1]["headers"]
-        assert "TelegramNotifier" in headers["User-Agent"]
+        assert "Mozilla/5.0" in headers["User-Agent"]
 
 
 

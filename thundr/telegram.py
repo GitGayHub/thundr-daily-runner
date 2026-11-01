@@ -205,8 +205,11 @@ class TelegramNotifier:
             return f"+{coins} монет"
         return "нет данных"
 
-    MIN_SEND_INTERVAL: float = 1.0
-    DEFAULT_USER_AGENT: str = "TelegramNotifier/2.0 (compatible; NotificationHub/1.0)"
+    MIN_SEND_INTERVAL: float = 2.0
+    DEFAULT_USER_AGENT: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    )
 
     def send_raw_message(
         self,
@@ -1067,9 +1070,11 @@ class TelegramNotifier:
             return self.send_stats_coins_breakdown(items)
         return self.send_stats_minutes_breakdown(items)
 
-    def get_updates(self, offset: Optional[int] = None, timeout: int = 5) -> List[Dict[str, Any]]:
-        """Fetch incoming Telegram updates via long polling with conflict and rate-limit backoff."""
+    def get_updates(self, offset: Optional[int] = None, timeout: int = 0) -> List[Dict[str, Any]]:
+        """Fetch incoming Telegram updates via short polling with conflict and rate-limit backoff."""
         if not self.is_configured:
+            return []
+        if os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("THUNDR_POLL_IN_CI", "").lower() == "false":
             return []
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         params: Dict[str, Any] = {"timeout": timeout}
