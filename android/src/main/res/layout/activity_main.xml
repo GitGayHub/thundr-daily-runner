@@ -206,7 +206,7 @@
             android:textSize="13sp" />
     </LinearLayout>
 
-    <!-- Filter Chips Scroll -->
+    <!-- Filter Chips Row 1: General Categories & Used State -->
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -219,18 +219,18 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:paddingBottom="4dp">
+            android:paddingBottom="2dp">
 
             <TextView
                 android:id="@+id/chipAll"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="@drawable/chip_selected"
-                android:paddingStart="12dp"
+                android:paddingStart="11dp"
                 android:paddingTop="5dp"
-                android:paddingEnd="12dp"
+                android:paddingEnd="11dp"
                 android:paddingBottom="5dp"
-                android:text="Все (50)"
+                android:text="Все (400)"
                 android:textColor="#000000"
                 android:textSize="12sp"
                 android:textStyle="bold" />
@@ -241,11 +241,25 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
                 android:background="@drawable/chip_unselected"
-                android:paddingStart="12dp"
+                android:paddingStart="11dp"
                 android:paddingTop="5dp"
-                android:paddingEnd="12dp"
+                android:paddingEnd="11dp"
                 android:paddingBottom="5dp"
                 android:text="⏱️ Есть минуты"
+                android:textColor="@color/text_muted"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/chipUsed"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/chip_unselected"
+                android:paddingStart="11dp"
+                android:paddingTop="5dp"
+                android:paddingEnd="11dp"
+                android:paddingBottom="5dp"
+                android:text="⏳ Юзаные (0)"
                 android:textColor="@color/text_muted"
                 android:textSize="12sp" />
 
@@ -255,9 +269,9 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
                 android:background="@drawable/chip_unselected"
-                android:paddingStart="12dp"
+                android:paddingStart="11dp"
                 android:paddingTop="5dp"
-                android:paddingEnd="12dp"
+                android:paddingEnd="11dp"
                 android:paddingBottom="5dp"
                 android:text="🎰 Джекпот"
                 android:textColor="@color/text_muted"
@@ -269,13 +283,113 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="6dp"
                 android:background="@drawable/chip_unselected"
-                android:paddingStart="12dp"
+                android:paddingStart="11dp"
                 android:paddingTop="5dp"
-                android:paddingEnd="12dp"
+                android:paddingEnd="11dp"
                 android:paddingBottom="5dp"
                 android:text="🎁 Доступен сбор"
                 android:textColor="@color/text_muted"
                 android:textSize="12sp" />
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Filter Chips Row 2: Exact Minutes / Coin Tiers -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingBottom="4dp">
+
+            <TextView
+                android:id="@+id/chipMin1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/chip_unselected"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:text="⏱ 1 мин · 100🪙"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/chipMin2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/chip_unselected"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:text="⏱ 2 мин · 200🪙"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/chipMin3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/chip_unselected"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:text="⏱ 3 мин · 300🪙"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/chipMin4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/chip_unselected"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:text="⏱ 4 мин · 400🪙"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/chipMin10"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/chip_unselected"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:text="🔥 10+ мин · 450+🪙"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/chipMin0"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/chip_unselected"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:text="💤 0 мин · &lt;100🪙"
+                android:textColor="@color/text_muted"
+                android:textSize="11sp" />
         </LinearLayout>
     </HorizontalScrollView>
 

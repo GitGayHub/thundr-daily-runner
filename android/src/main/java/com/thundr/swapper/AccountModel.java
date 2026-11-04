@@ -15,6 +15,14 @@ public class AccountModel {
     public final String email;
     public final String bookmarklet;
 
+    // Local usage & Git verification tracking
+    public boolean locallyUsed = false;
+    public long usedAtEpoch = 0;
+    public int balanceBeforeUse = 0;
+    public int minutesBeforeUse = 0;
+    public boolean gitVerifiedSpent = false;
+    public boolean gitVerifiedKept = false;
+
     public AccountModel(String username, String password, int balance, int minutes,
                         int streak, boolean isJackpot, boolean available,
                         String userId, String hashedToken, String email,

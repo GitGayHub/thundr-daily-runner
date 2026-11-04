@@ -1,14 +1,11 @@
 package com.thundr.swapper;
 
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
-import android.content.ClipData;
-import android.content.ClipboardManager;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -25,7 +22,6 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -48,6 +44,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     private static final String KEY_SYNC_EPOCH = "last_sync_epoch";
     private static final String KEY_SYNC_DISPLAY = "last_sync_display";
     private static final String CACHE_FILE_NAME = "accounts_cache.json";
+    private static final String USED_STATE_FILE_NAME = "used_accounts_state.json";
 
     private static final String GITHUB_API_EXPORT_URL =
             "https://api.github.com/repos/GitGayHub/thundr-daily-runner/contents/data/accounts_export.json?ref=main";
@@ -72,8 +69,16 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
     private TextView chipAll;
     private TextView chipMinutes;
+    private TextView chipUsed;
     private TextView chipJackpot;
     private TextView chipReady;
+
+    private TextView chipMin1;
+    private TextView chipMin2;
+    private TextView chipMin3;
+    private TextView chipMin4;
+    private TextView chipMin10;
+    private TextView chipMin0;
 
     private ListView lvAccounts;
     private TextView tvEmptyState;
@@ -155,8 +160,16 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
         chipAll = findViewById(R.id.chipAll);
         chipMinutes = findViewById(R.id.chipMinutes);
+        chipUsed = findViewById(R.id.chipUsed);
         chipJackpot = findViewById(R.id.chipJackpot);
         chipReady = findViewById(R.id.chipReady);
+
+        chipMin1 = findViewById(R.id.chipMin1);
+        chipMin2 = findViewById(R.id.chipMin2);
+        chipMin3 = findViewById(R.id.chipMin3);
+        chipMin4 = findViewById(R.id.chipMin4);
+        chipMin10 = findViewById(R.id.chipMin10);
+        chipMin0 = findViewById(R.id.chipMin0);
 
         lvAccounts = findViewById(R.id.lvAccounts);
         tvEmptyState = findViewById(R.id.tvEmptyState);
@@ -182,19 +195,21 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         TextView hint = new TextView(this);
         hint.setText("Нужен ADB по сети (один раз с ПК: adb tcpip 5555) и разрешение отладки для приложения. Проверка — кнопка ниже.");
         hint.setTextSize(12);
-        hint.setPadding(0, pad / 2, 0, 0);
+        hint.setPadding(0, pad / 2, 0, pad / 2);
         box.addView(hint);
 
-        new android.app.AlertDialog.Builder(this)
+        new AlertDialog.Builder(this)
                 .setTitle("⚙️ Настройки")
                 .setView(box)
-                .setPositiveButton("🔌 Проверить ADB-доступ", (d, w) -> testAdbAccess())
+                .setPositiveButton("🔌 Проверить ADB", (d, w) -> testAdbAccess())
+                .setNeutralButton("🧹 Сбросить юзаные", (d, w) -> clearAllUsedAccountsState())
                 .setNegativeButton("Закрыть", null)
                 .show();
     }
+
     /** Connects to the phone's own adbd (127.0.0.1:5555) and asks Android to authorize this app. */
     private void testAdbAccess() {
-        final android.app.AlertDialog wait = new android.app.AlertDialog.Builder(this)
+        final AlertDialog wait = new AlertDialog.Builder(this)
                 .setTitle("🔌 ADB")
                 .setMessage("Подключаюсь... Если на экране появится «Разрешить отладку по USB?» — отметь «Всегда разрешать» и нажми «Разрешить».")
                 .setCancelable(false)
@@ -216,10 +231,11 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
             final String msg = result;
             runOnUiThread(() -> {
                 wait.dismiss();
-                new android.app.AlertDialog.Builder(this).setTitle("🔌 ADB").setMessage(msg).setPositiveButton("OK", null).show();
+                new AlertDialog.Builder(this).setTitle("🔌 ADB").setMessage(msg).setPositiveButton("OK", null).show();
             });
         }).start();
     }
+
     private void setupSearch() {
         etSearch.addTextChangedListener(new TextWatcher() {
             @Override
@@ -241,13 +257,25 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     private void setupFilterChips() {
         chipAll.setOnClickListener(v -> selectFilter("all", chipAll));
         chipMinutes.setOnClickListener(v -> selectFilter("minutes", chipMinutes));
+        chipUsed.setOnClickListener(v -> selectFilter("used", chipUsed));
         chipJackpot.setOnClickListener(v -> selectFilter("jackpot", chipJackpot));
         chipReady.setOnClickListener(v -> selectFilter("ready", chipReady));
+
+        chipMin1.setOnClickListener(v -> selectFilter("min_1", chipMin1));
+        chipMin2.setOnClickListener(v -> selectFilter("min_2", chipMin2));
+        chipMin3.setOnClickListener(v -> selectFilter("min_3", chipMin3));
+        chipMin4.setOnClickListener(v -> selectFilter("min_4", chipMin4));
+        chipMin10.setOnClickListener(v -> selectFilter("min_10", chipMin10));
+        chipMin0.setOnClickListener(v -> selectFilter("min_0", chipMin0));
     }
 
     private void selectFilter(String mode, TextView selectedChip) {
-        TextView[] allChips = {chipAll, chipMinutes, chipJackpot, chipReady};
+        TextView[] allChips = {
+                chipAll, chipMinutes, chipUsed, chipJackpot, chipReady,
+                chipMin1, chipMin2, chipMin3, chipMin4, chipMin10, chipMin0
+        };
         for (TextView chip : allChips) {
+            if (chip == null) continue;
             if (chip == selectedChip) {
                 chip.setBackgroundResource(R.drawable.chip_selected);
                 chip.setTextColor(Color.parseColor("#000000"));
@@ -276,23 +304,59 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         int totalCoins = 0;
         int totalMinutes = 0;
         int countMinutes = 0;
+        int countUsed = 0;
+        int countPendingGit = 0;
         int countJackpot = 0;
         int countReady = 0;
+
+        int countMin1 = 0;
+        int countMin2 = 0;
+        int countMin3 = 0;
+        int countMin4 = 0;
+        int countMin10 = 0;
+        int countMin0 = 0;
+
         for (AccountModel a : accountsList) {
-            totalCoins += a.balance;
-            totalMinutes += a.minutes;
-            if (a.minutes > 0) countMinutes++;
-            if (a.isJackpot) countJackpot++;
-            if (a.available) countReady++;
+            if (!a.locallyUsed) {
+                totalCoins += a.balance;
+                totalMinutes += a.minutes;
+            }
+            if (a.minutes > 0 && !a.locallyUsed) countMinutes++;
+            if (a.locallyUsed || a.gitVerifiedSpent || a.gitVerifiedKept) countUsed++;
+            if (a.locallyUsed) countPendingGit++;
+            if (a.isJackpot && !a.locallyUsed) countJackpot++;
+            if (a.available && !a.locallyUsed) countReady++;
+
+            if (!a.locallyUsed) {
+                if (a.minutes == 1) countMin1++;
+                else if (a.minutes == 2) countMin2++;
+                else if (a.minutes == 3) countMin3++;
+                else if (a.minutes == 4) countMin4++;
+                else if (a.minutes >= 5) countMin10++;
+                else if (a.minutes == 0) countMin0++;
+            }
         }
 
-        tvStatCount.setText(String.valueOf(accountsList.size()));
+        if (countPendingGit > 0) {
+            tvStatCount.setText((accountsList.size() - countPendingGit) + "/" + accountsList.size());
+        } else {
+            tvStatCount.setText(String.valueOf(accountsList.size()));
+        }
         tvStatMinutes.setText(totalMinutes + " мин");
         tvStatCoins.setText(String.valueOf(totalCoins));
+
         chipAll.setText("Все (" + accountsList.size() + ")");
         chipMinutes.setText("⏱️ Есть минуты (" + countMinutes + ")");
+        chipUsed.setText("⏳ Юзаные (" + countUsed + ")");
         chipJackpot.setText("🎰 Джекпот (" + countJackpot + ")");
-        chipReady.setText("🎁 Доступен сбор (" + countReady + ")");
+        chipReady.setText("🎁 Сбор (" + countReady + ")");
+
+        chipMin1.setText("⏱ 1 мин · 100🪙 (" + countMin1 + ")");
+        chipMin2.setText("⏱ 2 мин · 200🪙 (" + countMin2 + ")");
+        chipMin3.setText("⏱ 3 мин · 300🪙 (" + countMin3 + ")");
+        chipMin4.setText("⏱ 4 мин · 400🪙 (" + countMin4 + ")");
+        chipMin10.setText("🔥 10+ мин · 450+🪙 (" + countMin10 + ")");
+        chipMin0.setText("💤 0 мин · <100🪙 (" + countMin0 + ")");
     }
 
     private void updateSyncTimeUI() {
@@ -322,7 +386,210 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
                 ? lastSyncDisplay
                 : new SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(new Date(lastSyncEpoch * 1000));
 
-        tvSyncStatus.setText("🔄 GitHub: " + displayTime + " (" + relative + ")");
+        int pendingGit = 0;
+        for (AccountModel a : accountsList) {
+            if (a.locallyUsed) pendingGit++;
+        }
+        String suffix = pendingGit > 0 ? " · ⏳ ждут Git: " + pendingGit : "";
+        tvSyncStatus.setText("🔄 Git: " + displayTime + " (" + relative + ")" + suffix);
+    }
+
+    // --- Local Used-Account State & Git Verification ---
+
+    private JSONObject readUsedStateJson() {
+        File f = new File(getFilesDir(), USED_STATE_FILE_NAME);
+        if (!f.exists()) return new JSONObject();
+        try (FileInputStream fis = new FileInputStream(f);
+             InputStreamReader isr = new InputStreamReader(fis, StandardCharsets.UTF_8)) {
+            StringBuilder sb = new StringBuilder();
+            char[] buf = new char[4096];
+            int n;
+            while ((n = isr.read(buf)) != -1) {
+                sb.append(buf, 0, n);
+            }
+            return new JSONObject(sb.toString());
+        } catch (Exception e) {
+            return new JSONObject();
+        }
+    }
+
+    private void writeUsedStateJson(JSONObject stateObj) {
+        if (stateObj == null) return;
+        File f = new File(getFilesDir(), USED_STATE_FILE_NAME);
+        try (FileOutputStream fos = new FileOutputStream(f)) {
+            fos.write(stateObj.toString().getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void markAccountUsedLocally(AccountModel acc) {
+        long nowSec = System.currentTimeMillis() / 1000;
+        int balBefore = acc.balanceBeforeUse > 0 ? acc.balanceBeforeUse : acc.balance;
+        int minBefore = acc.minutesBeforeUse > 0 ? acc.minutesBeforeUse : acc.minutes;
+
+        JSONObject stateObj = readUsedStateJson();
+        try {
+            JSONObject entry = new JSONObject();
+            entry.put("used_at_epoch", nowSec);
+            entry.put("git_epoch_at_use", lastSyncEpoch);
+            entry.put("balance_before", balBefore);
+            entry.put("minutes_before", minBefore);
+            entry.put("state", "PENDING_GIT");
+            stateObj.put(acc.username, entry);
+            writeUsedStateJson(stateObj);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        acc.locallyUsed = true;
+        acc.usedAtEpoch = nowSec;
+        acc.balanceBeforeUse = balBefore;
+        acc.minutesBeforeUse = minBefore;
+        acc.gitVerifiedSpent = false;
+        acc.gitVerifiedKept = false;
+
+        if (adapter != null) {
+            adapter.updateData(accountsList);
+            checkEmptyState();
+        }
+        updateStatsUI();
+        updateSyncTimeUI();
+    }
+
+    private void clearSingleAccountUsedState(AccountModel acc) {
+        JSONObject stateObj = readUsedStateJson();
+        stateObj.remove(acc.username);
+        writeUsedStateJson(stateObj);
+
+        acc.locallyUsed = false;
+        acc.usedAtEpoch = 0;
+        acc.balanceBeforeUse = 0;
+        acc.minutesBeforeUse = 0;
+        acc.gitVerifiedSpent = false;
+        acc.gitVerifiedKept = false;
+
+        if (adapter != null) {
+            adapter.updateData(accountsList);
+            checkEmptyState();
+        }
+        updateStatsUI();
+        updateSyncTimeUI();
+    }
+
+    private void clearAllUsedAccountsState() {
+        writeUsedStateJson(new JSONObject());
+        for (AccountModel acc : accountsList) {
+            acc.locallyUsed = false;
+            acc.usedAtEpoch = 0;
+            acc.balanceBeforeUse = 0;
+            acc.minutesBeforeUse = 0;
+            acc.gitVerifiedSpent = false;
+            acc.gitVerifiedKept = false;
+        }
+        if (adapter != null) {
+            adapter.updateData(accountsList);
+            checkEmptyState();
+        }
+        updateStatsUI();
+        updateSyncTimeUI();
+        Toast.makeText(this, "🧹 Список юзаных аккаунтов очищен", Toast.LENGTH_SHORT).show();
+    }
+
+    private static class VerificationStats {
+        int newlyVerifiedSpent = 0;
+        int newlyVerifiedKept = 0;
+        int stillPendingGit = 0;
+    }
+
+    /**
+     * Reconciles local used-accounts state against incoming account balances and Git export timestamp.
+     * An account marked PENDING_GIT stays at the bottom ("скорее всего потрачен") until Git runs a check
+     * that either shows a lower balance/minutes (VERIFIED_SPENT) or has a newer updated_at_epoch than
+     * when the account was used (VERIFIED_KEPT).
+     */
+    private VerificationStats applyUsedAccountsState(List<AccountModel> list, long currentGitEpoch, boolean isNetworkSync) {
+        VerificationStats stats = new VerificationStats();
+        JSONObject stateObj = readUsedStateJson();
+        boolean dirty = false;
+
+        for (AccountModel acc : list) {
+            JSONObject entry = stateObj.optJSONObject(acc.username);
+            if (entry == null) {
+                continue;
+            }
+            String state = entry.optString("state", "PENDING_GIT");
+            long usedAt = entry.optLong("used_at_epoch", 0);
+            long gitEpochAtUse = entry.optLong("git_epoch_at_use", 0);
+            int balBefore = entry.optInt("balance_before", acc.balance);
+            int minBefore = entry.optInt("minutes_before", acc.minutes);
+
+            acc.usedAtEpoch = usedAt;
+            acc.balanceBeforeUse = balBefore;
+            acc.minutesBeforeUse = minBefore;
+
+            if ("PENDING_GIT".equals(state)) {
+                boolean balanceDropped = (acc.balance < balBefore) || (acc.minutes < minBefore);
+                boolean gitCheckedAfterUse = isNetworkSync
+                        && currentGitEpoch > 0
+                        && currentGitEpoch > usedAt
+                        && currentGitEpoch > gitEpochAtUse;
+
+                if (balanceDropped) {
+                    acc.locallyUsed = false;
+                    acc.gitVerifiedSpent = true;
+                    acc.gitVerifiedKept = false;
+                    stats.newlyVerifiedSpent++;
+                    try {
+                        entry.put("state", "VERIFIED_SPENT");
+                        dirty = true;
+                    } catch (Exception ignored) {}
+                } else if (gitCheckedAfterUse) {
+                    acc.locallyUsed = false;
+                    acc.gitVerifiedSpent = false;
+                    acc.gitVerifiedKept = true;
+                    stats.newlyVerifiedKept++;
+                    try {
+                        entry.put("state", "VERIFIED_KEPT");
+                        dirty = true;
+                    } catch (Exception ignored) {}
+                } else {
+                    acc.locallyUsed = true;
+                    acc.gitVerifiedSpent = false;
+                    acc.gitVerifiedKept = false;
+                    stats.stillPendingGit++;
+                }
+            } else if ("VERIFIED_SPENT".equals(state)) {
+                if (acc.minutes > minBefore) {
+                    // Account later farmed new boost minutes on a subsequent day
+                    stateObj.remove(acc.username);
+                    dirty = true;
+                } else {
+                    acc.locallyUsed = false;
+                    acc.gitVerifiedSpent = true;
+                    acc.gitVerifiedKept = false;
+                }
+            } else if ("VERIFIED_KEPT".equals(state)) {
+                if (acc.balance < balBefore || acc.minutes < minBefore) {
+                    acc.locallyUsed = false;
+                    acc.gitVerifiedSpent = true;
+                    acc.gitVerifiedKept = false;
+                    try {
+                        entry.put("state", "VERIFIED_SPENT");
+                        dirty = true;
+                    } catch (Exception ignored) {}
+                } else {
+                    acc.locallyUsed = false;
+                    acc.gitVerifiedSpent = false;
+                    acc.gitVerifiedKept = true;
+                }
+            }
+        }
+
+        if (dirty) {
+            writeUsedStateJson(stateObj);
+        }
+        return stats;
     }
 
     private static class ParsedPayload {
@@ -423,13 +690,14 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         }
 
         if (chosen != null) {
-            accountsList.addAll(chosen.accounts);
             if (chosen.updatedEpoch > 0) {
                 lastSyncEpoch = chosen.updatedEpoch;
             }
             if (chosen.updatedDisplay != null && !chosen.updatedDisplay.isEmpty()) {
                 lastSyncDisplay = chosen.updatedDisplay;
             }
+            applyUsedAccountsState(chosen.accounts, lastSyncEpoch, false);
+            accountsList.addAll(chosen.accounts);
         }
     }
 
@@ -475,7 +743,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         }
         isSyncing.set(true);
         syncSpinner.setVisibility(View.VISIBLE);
-        tvSyncStatus.setText("🔄 GitHub: загрузка актуальных данных...");
+        tvSyncStatus.setText("🔄 GitHub: сверка с базой Git...");
 
         new Thread(() -> {
             long nowEpoch = System.currentTimeMillis() / 1000;
@@ -487,8 +755,6 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
                 if (parsed != null && !parsed.accounts.isEmpty()) {
                     lastSuccessfulFetchMs = System.currentTimeMillis();
-                    accountsList.clear();
-                    accountsList.addAll(parsed.accounts);
 
                     if (parsed.updatedEpoch > 0) {
                         lastSyncEpoch = parsed.updatedEpoch;
@@ -500,6 +766,11 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
                     } else if (lastSyncDisplay == null || lastSyncDisplay.isEmpty()) {
                         lastSyncDisplay = new SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(new Date());
                     }
+
+                    VerificationStats vStats = applyUsedAccountsState(parsed.accounts, parsed.updatedEpoch, true);
+
+                    accountsList.clear();
+                    accountsList.addAll(parsed.accounts);
 
                     if (adapter != null) {
                         adapter.updateData(accountsList);
@@ -513,7 +784,21 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
                     checkEmptyState();
 
                     if (isUserTriggered) {
-                        Toast.makeText(MainActivity.this, "✅ Обновлено с GitHub: " + accountsList.size() + " аккаунтов!", Toast.LENGTH_SHORT).show();
+                        int totalVerifiedNow = vStats.newlyVerifiedSpent + vStats.newlyVerifiedKept;
+                        String msg;
+                        if (totalVerifiedNow > 0) {
+                            msg = "✅ Git проверил " + totalVerifiedNow + " акк. (потрачено: "
+                                    + vStats.newlyVerifiedSpent + ", целы: " + vStats.newlyVerifiedKept + ")";
+                            if (vStats.stillPendingGit > 0) {
+                                msg += " · ⏳ ждут Git: " + vStats.stillPendingGit;
+                            }
+                        } else if (vStats.stillPendingGit > 0) {
+                            msg = "✅ База Git загружена (" + accountsList.size() + " акк).\n⏳ "
+                                    + vStats.stillPendingGit + " юзаных акк. внизу (ждут следующей проверки Git)";
+                        } else {
+                            msg = "✅ Обновлено с GitHub: " + accountsList.size() + " аккаунтов!";
+                        }
+                        Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
                     }
                 } else {
                     updateSyncTimeUI();
@@ -584,6 +869,9 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
     @Override
     public void onInstantLogin(AccountModel acc) {
+        // Immediately mark as locally used (pending Git check) and sink to the bottom of the list
+        markAccountUsedLocally(acc);
+
         Intent intent = new Intent(this, BrowserActivity.class);
         intent.putExtra(BrowserActivity.EXTRA_USERNAME, acc.username);
         intent.putExtra(BrowserActivity.EXTRA_USER_ID, acc.userId);
@@ -594,5 +882,30 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         intent.putExtra(BrowserActivity.EXTRA_MINUTES, acc.minutes);
         intent.putExtra(BrowserActivity.EXTRA_BOOKMARKLET, acc.getUserPayloadJson());
         startActivity(intent);
+    }
+
+    @Override
+    public void onAccountLongClick(AccountModel acc) {
+        if (acc.locallyUsed || acc.gitVerifiedSpent || acc.gitVerifiedKept) {
+            new AlertDialog.Builder(this)
+                    .setTitle(acc.username)
+                    .setMessage("Снять отметку «Юзаный» и вернуть аккаунт обратно в общий список?")
+                    .setPositiveButton("🔄 Вернуть в список", (d, w) -> {
+                        clearSingleAccountUsedState(acc);
+                        Toast.makeText(this, "✅ " + acc.username + " возвращён в список", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("Отмена", null)
+                    .show();
+        } else {
+            new AlertDialog.Builder(this)
+                    .setTitle(acc.username)
+                    .setMessage("Отметить аккаунт как использованный (опустить вниз до сверки с Git)?")
+                    .setPositiveButton("⏳ Вниз (юзаный)", (d, w) -> {
+                        markAccountUsedLocally(acc);
+                        Toast.makeText(this, "⏳ " + acc.username + " опущен вниз (ждёт сверки с Git)", Toast.LENGTH_SHORT).show();
+                    })
+                    .setNegativeButton("Отмена", null)
+                    .show();
+        }
     }
 }
