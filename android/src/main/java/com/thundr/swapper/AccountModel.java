@@ -37,29 +37,52 @@ public class AccountModel {
     public static AccountModel fromJson(JSONObject obj) {
         String username = obj.optString("username", "account");
         String password = obj.optString("password", "");
-        int balance = obj.optInt("balance", 0);
+
+        JSONObject statusObj = obj.optJSONObject("last_status");
+        int balance = obj.optInt("balance", statusObj != null ? statusObj.optInt("coin_balance", 0) : 0);
         int minutes = obj.optInt("minutes", 0);
-        int streak = obj.optInt("streak", 0);
-        boolean isJackpot = obj.optBoolean("is_jackpot", false);
-        boolean available = obj.optBoolean("available", false);
-        String userId = obj.optString("user_id", "");
-        String hashedToken = obj.optString("hashed_token", "");
-        String email = obj.optString("email", username);
+        int streak = obj.optInt("streak", statusObj != null ? statusObj.optInt("streak", 0) : 0);
+        boolean isJackpot = obj.has("is_jackpot")
+                ? obj.optBoolean("is_jackpot", false)
+                : (streak > 0 && streak % 7 == 0);
+        boolean available = obj.has("available")
+                ? obj.optBoolean("available", false)
+                : (statusObj != null && statusObj.optBoolean("available", false));
+
+        JSONObject sessionObj = obj.optJSONObject("session");
+        String userId = obj.optString("user_id", sessionObj != null ? sessionObj.optString("user_id", "") : "");
+        String hashedToken = obj.optString("hashed_token", sessionObj != null ? sessionObj.optString("hashed_token", "") : "");
+        String email = obj.optString("email", sessionObj != null ? sessionObj.optString("email", username) : username);
         String bookmarklet = obj.optString("bookmarklet", "");
 
-        // If minutes not present, compute strict minutes:
-        // < 100 -> 0 min
-        // 100..449 -> balance / 100
-        // >= 450 -> 450 = 10 min, 1000 = 30 min, 2100 = 60 min
         if (minutes == 0 && balance >= 100) {
-            if (balance >= 450) {
-                minutes = 10 + ((balance - 450) / 100);
-            } else {
-                minutes = balance / 100;
-            }
+            minutes = calculateBoostMinutes(balance);
         }
 
         return new AccountModel(username, password, balance, minutes, streak, isJackpot, available, userId, hashedToken, email, bookmarklet);
+    }
+
+    public static int calculateBoostMinutes(int coins) {
+        if (coins < 100) return 0;
+        if (coins >= 3000) {
+            int base30s = (coins - 2000) / 1000;
+            int rem = coins - base30s * 1000;
+            return base30s * 30 + calculateBoostMinutes(rem);
+        }
+        int[] costs = {100, 450, 1000, 2100};
+        int[] mins = {1, 10, 30, 60};
+        int[] dp = new int[coins + 1];
+        for (int c = 1; c <= coins; c++) {
+            int best = dp[c - 1];
+            for (int i = 0; i < costs.length; i++) {
+                if (c >= costs[i]) {
+                    int cand = dp[c - costs[i]] + mins[i];
+                    if (cand > best) best = cand;
+                }
+            }
+            dp[c] = best;
+        }
+        return dp[coins];
     }
 
     public String getUserPayloadJson() {

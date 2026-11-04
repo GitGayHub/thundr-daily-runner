@@ -196,7 +196,17 @@ class AccountRecord:
             )
 
         status_data = data.get("last_status")
-        last_status = DailyCrateStatus.from_dict(status_data) if isinstance(status_data, dict) else None
+        if isinstance(status_data, dict):
+            last_status = DailyCrateStatus.from_dict(status_data)
+        elif "balance" in data or "coin_balance" in data or "streak" in data:
+            last_status = DailyCrateStatus(
+                available=bool(data.get("available", False)),
+                coin_balance=int(data.get("balance", data.get("coin_balance", 0)) or 0),
+                next_reset_at=data.get("next_reset_at"),
+                streak=int(data.get("streak", 0) or 0),
+            )
+        else:
+            last_status = None
 
         return cls(
             username=str(data.get("username", "")).strip(),
@@ -217,6 +227,7 @@ class AccountManager:
 
     def __init__(self, filepath: Optional[str | Path] = None):
         default_file = Path(__file__).resolve().parent.parent / "data" / "accounts.json"
+        self._is_default_path = filepath is None and not os.getenv("ACCOUNTS_FILE")
         self.filepath = Path(filepath or os.getenv("ACCOUNTS_FILE", default_file))
         self._accounts: Dict[str, AccountRecord] = {}
         self.load()
@@ -238,6 +249,34 @@ class AccountManager:
                 logger.info(f"Loaded {len(self._accounts)} account(s) from {self.filepath}")
             except Exception as e:
                 logger.error(f"Error reading {self.filepath}: {e}")
+
+        # 1b. If using default path, also merge newer balances/streaks from data/accounts_export.json
+        if getattr(self, "_is_default_path", False):
+            export_file = self.filepath.parent / "accounts_export.json"
+            if export_file.exists():
+                try:
+                    with open(export_file, "r", encoding="utf-8") as f:
+                        exp_data = json.load(f)
+                        exp_items = exp_data if isinstance(exp_data, list) else exp_data.get("accounts", [])
+                        for item in exp_items:
+                            if isinstance(item, dict) and item.get("username"):
+                                rec = AccountRecord.from_dict(item)
+                                key = rec.username.lower()
+                                if key in self._accounts:
+                                    existing = self._accounts[key]
+                                    if rec.password and not existing.password:
+                                        existing.password = rec.password
+                                    if rec.session and rec.session.is_valid:
+                                        existing.session = rec.session
+                                    if rec.last_status:
+                                        if existing.last_status is None:
+                                            existing.last_status = rec.last_status
+                                        elif rec.last_status.coin_balance > existing.last_status.coin_balance or rec.last_status.streak > existing.last_status.streak:
+                                            existing.last_status = rec.last_status
+                                else:
+                                    self._accounts[key] = rec
+                except Exception as e:
+                    logger.debug(f"Error merging {export_file}: {e}")
 
         # 2. Check JSON array env var (THUNDR_ACCOUNTS_JSON and chunked THUNDR_ACCOUNTS_JSON_*)
         json_env_keys = ["THUNDR_ACCOUNTS_JSON"]

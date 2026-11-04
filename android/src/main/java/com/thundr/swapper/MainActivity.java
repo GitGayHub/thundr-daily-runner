@@ -26,15 +26,20 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends Activity implements AccountAdapter.OnAccountActionListener {
 
@@ -42,9 +47,16 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     private static final String KEY_ACCOUNTS_JSON = "cached_accounts_json";
     private static final String KEY_SYNC_EPOCH = "last_sync_epoch";
     private static final String KEY_SYNC_DISPLAY = "last_sync_display";
+    private static final String CACHE_FILE_NAME = "accounts_cache.json";
 
+    private static final String GITHUB_API_EXPORT_URL =
+            "https://api.github.com/repos/GitGayHub/thundr-daily-runner/contents/data/accounts_export.json?ref=main";
     private static final String GITHUB_EXPORT_URL =
             "https://raw.githubusercontent.com/GitGayHub/thundr-daily-runner/main/data/accounts_export.json";
+    private static final String GITHUB_REFS_EXPORT_URL =
+            "https://raw.githubusercontent.com/GitGayHub/thundr-daily-runner/refs/heads/main/data/accounts_export.json";
+    private static final String GITHUB_API_FALLBACK_URL =
+            "https://api.github.com/repos/GitGayHub/thundr-daily-runner/contents/android/src/main/assets/accounts.json?ref=main";
     private static final String GITHUB_FALLBACK_URL =
             "https://raw.githubusercontent.com/GitGayHub/thundr-daily-runner/main/android/src/main/assets/accounts.json";
 
@@ -73,6 +85,8 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
     private long lastSyncEpoch = 0;
     private String lastSyncDisplay = "";
+    private long lastSuccessfulFetchMs = 0;
+    private final AtomicBoolean isSyncing = new AtomicBoolean(false);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -108,6 +122,16 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
             }
         };
         mainHandler.postDelayed(tickTimerRunnable, 30000);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateSyncTimeUI();
+        // Auto-sync when returning to the app or unlocking screen if previous sync failed or is > 60s old
+        if (System.currentTimeMillis() - lastSuccessfulFetchMs > 60000) {
+            syncWithGithub(false);
+        }
     }
 
     @Override
@@ -251,15 +275,24 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     private void updateStatsUI() {
         int totalCoins = 0;
         int totalMinutes = 0;
+        int countMinutes = 0;
+        int countJackpot = 0;
+        int countReady = 0;
         for (AccountModel a : accountsList) {
             totalCoins += a.balance;
             totalMinutes += a.minutes;
+            if (a.minutes > 0) countMinutes++;
+            if (a.isJackpot) countJackpot++;
+            if (a.available) countReady++;
         }
 
         tvStatCount.setText(String.valueOf(accountsList.size()));
         tvStatMinutes.setText(totalMinutes + " мин");
         tvStatCoins.setText(String.valueOf(totalCoins));
         chipAll.setText("Все (" + accountsList.size() + ")");
+        chipMinutes.setText("⏱️ Есть минуты (" + countMinutes + ")");
+        chipJackpot.setText("🎰 Джекпот (" + countJackpot + ")");
+        chipReady.setText("🎁 Доступен сбор (" + countReady + ")");
     }
 
     private void updateSyncTimeUI() {
@@ -292,96 +325,188 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         tvSyncStatus.setText("🔄 GitHub: " + displayTime + " (" + relative + ")");
     }
 
+    private static class ParsedPayload {
+        final List<AccountModel> accounts = new ArrayList<>();
+        long updatedEpoch = 0;
+        String updatedDisplay = "";
+        int totalCoins = 0;
+    }
+
+    private ParsedPayload parseAccountsPayload(String jsonStr) {
+        if (jsonStr == null || jsonStr.trim().isEmpty()) {
+            return null;
+        }
+        ParsedPayload res = new ParsedPayload();
+        try {
+            String trimmed = jsonStr.trim();
+            JSONArray arr = null;
+            if (trimmed.startsWith("{")) {
+                JSONObject root = new JSONObject(trimmed);
+                res.updatedEpoch = root.optLong("updated_at_epoch", 0);
+                res.updatedDisplay = root.optString("updated_at_display", "");
+                arr = root.optJSONArray("accounts");
+            } else if (trimmed.startsWith("[")) {
+                arr = new JSONArray(trimmed);
+            }
+            if (arr != null) {
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject item = arr.optJSONObject(i);
+                    if (item != null) {
+                        AccountModel acc = AccountModel.fromJson(item);
+                        res.accounts.add(acc);
+                        res.totalCoins += acc.balance;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+        return res.accounts.isEmpty() ? null : res;
+    }
+
+    private String readCacheFile() {
+        File f = new File(getFilesDir(), CACHE_FILE_NAME);
+        if (!f.exists()) return null;
+        try (FileInputStream fis = new FileInputStream(f);
+             InputStreamReader isr = new InputStreamReader(fis, StandardCharsets.UTF_8)) {
+            StringBuilder sb = new StringBuilder();
+            char[] buf = new char[8192];
+            int n;
+            while ((n = isr.read(buf)) != -1) {
+                sb.append(buf, 0, n);
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void writeCacheFile(String jsonStr) {
+        if (jsonStr == null || jsonStr.isEmpty()) return;
+        File f = new File(getFilesDir(), CACHE_FILE_NAME);
+        try (FileOutputStream fos = new FileOutputStream(f)) {
+            fos.write(jsonStr.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     private void loadCachedAccounts() {
         accountsList.clear();
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         lastSyncEpoch = prefs.getLong(KEY_SYNC_EPOCH, 0);
         lastSyncDisplay = prefs.getString(KEY_SYNC_DISPLAY, "");
 
-        String cachedJson = prefs.getString(KEY_ACCOUNTS_JSON, null);
-        if (cachedJson != null && !cachedJson.trim().isEmpty()) {
-            parseAccountsJson(cachedJson);
+        String cachedJson = readCacheFile();
+        if (cachedJson == null || cachedJson.trim().isEmpty()) {
+            cachedJson = prefs.getString(KEY_ACCOUNTS_JSON, null);
+        }
+        ParsedPayload cachedPayload = parseAccountsPayload(cachedJson);
+
+        String assetJson = loadAssetString("accounts.json");
+        ParsedPayload assetPayload = parseAccountsPayload(assetJson);
+
+        ParsedPayload chosen = cachedPayload;
+        if (assetPayload != null) {
+            if (chosen == null
+                    || assetPayload.accounts.size() > chosen.accounts.size()
+                    || assetPayload.updatedEpoch > chosen.updatedEpoch
+                    || (assetPayload.updatedEpoch == chosen.updatedEpoch && assetPayload.totalCoins > chosen.totalCoins)) {
+                chosen = assetPayload;
+                writeCacheFile(assetJson);
+                prefs.edit()
+                        .putLong(KEY_SYNC_EPOCH, chosen.updatedEpoch)
+                        .putString(KEY_SYNC_DISPLAY, chosen.updatedDisplay)
+                        .apply();
+            }
         }
 
-        // Fallback to bundled asset if cache empty
-        if (accountsList.isEmpty()) {
-            String assetJson = loadAssetString("accounts.json");
-            if (assetJson != null) {
-                parseAccountsJson(assetJson);
+        if (chosen != null) {
+            accountsList.addAll(chosen.accounts);
+            if (chosen.updatedEpoch > 0) {
+                lastSyncEpoch = chosen.updatedEpoch;
+            }
+            if (chosen.updatedDisplay != null && !chosen.updatedDisplay.isEmpty()) {
+                lastSyncDisplay = chosen.updatedDisplay;
             }
         }
     }
 
-    private void parseAccountsJson(String jsonStr) {
-        accountsList.clear();
-        try {
-            String trimmed = jsonStr.trim();
-            if (trimmed.startsWith("{")) {
-                JSONObject root = new JSONObject(trimmed);
-                if (root.has("updated_at_epoch")) {
-                    lastSyncEpoch = root.optLong("updated_at_epoch", lastSyncEpoch);
-                }
-                if (root.has("updated_at_display")) {
-                    lastSyncDisplay = root.optString("updated_at_display", lastSyncDisplay);
-                }
-                JSONArray arr = root.optJSONArray("accounts");
-                if (arr != null) {
-                    for (int i = 0; i < arr.length(); i++) {
-                        accountsList.add(AccountModel.fromJson(arr.getJSONObject(i)));
+    private ParsedPayload fetchBestPayloadFromGithub() {
+        long ts = System.currentTimeMillis();
+        String[][] endpoints = new String[][]{
+                {GITHUB_API_EXPORT_URL + "&t=" + ts, "application/vnd.github.raw+json"},
+                {GITHUB_EXPORT_URL + "?t=" + ts, null},
+                {GITHUB_REFS_EXPORT_URL + "?t=" + ts, null},
+                {GITHUB_API_FALLBACK_URL + "&t=" + ts, "application/vnd.github.raw+json"},
+                {GITHUB_FALLBACK_URL + "?t=" + ts, null}
+        };
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            for (String[] ep : endpoints) {
+                String json = fetchUrl(ep[0], ep[1]);
+                if (json != null && !json.trim().isEmpty()) {
+                    ParsedPayload parsed = parseAccountsPayload(json);
+                    if (parsed != null && !parsed.accounts.isEmpty()) {
+                        writeCacheFile(json);
+                        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                        prefs.edit()
+                                .putString(KEY_ACCOUNTS_JSON, json)
+                                .putLong(KEY_SYNC_EPOCH, parsed.updatedEpoch)
+                                .putString(KEY_SYNC_DISPLAY, parsed.updatedDisplay)
+                                .apply();
+                        return parsed;
                     }
                 }
-            } else if (trimmed.startsWith("[")) {
-                JSONArray arr = new JSONArray(trimmed);
-                for (int i = 0; i < arr.length(); i++) {
-                    accountsList.add(AccountModel.fromJson(arr.getJSONObject(i)));
-                }
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+            if (attempt == 0) {
+                try {
+                    Thread.sleep(1200);
+                } catch (InterruptedException ignored) {}
+            }
         }
+        return null;
     }
 
     public void syncWithGithub(boolean isUserTriggered) {
+        if (!isUserTriggered && !isSyncing.compareAndSet(false, true)) {
+            return;
+        }
+        isSyncing.set(true);
         syncSpinner.setVisibility(View.VISIBLE);
         tvSyncStatus.setText("🔄 GitHub: загрузка актуальных данных...");
 
         new Thread(() -> {
-            String fetchedJson = null;
             long nowEpoch = System.currentTimeMillis() / 1000;
-
-            // Try 1: accounts_export.json
-            fetchedJson = fetchUrl(GITHUB_EXPORT_URL + "?t=" + System.currentTimeMillis());
-
-            // Try 2: fallback to assets/accounts.json
-            if (fetchedJson == null) {
-                fetchedJson = fetchUrl(GITHUB_FALLBACK_URL + "?t=" + System.currentTimeMillis());
-            }
-
-            final String finalJson = fetchedJson;
+            final ParsedPayload parsed = fetchBestPayloadFromGithub();
+            isSyncing.set(false);
 
             mainHandler.post(() -> {
                 syncSpinner.setVisibility(View.GONE);
 
-                if (finalJson != null && !finalJson.trim().isEmpty()) {
-                    parseAccountsJson(finalJson);
+                if (parsed != null && !parsed.accounts.isEmpty()) {
+                    lastSuccessfulFetchMs = System.currentTimeMillis();
+                    accountsList.clear();
+                    accountsList.addAll(parsed.accounts);
 
-                    if (lastSyncEpoch == 0 || lastSyncEpoch < nowEpoch - 86400) {
+                    if (parsed.updatedEpoch > 0) {
+                        lastSyncEpoch = parsed.updatedEpoch;
+                    } else if (lastSyncEpoch == 0 || lastSyncEpoch < nowEpoch - 86400) {
                         lastSyncEpoch = nowEpoch;
                     }
-                    if (lastSyncDisplay == null || lastSyncDisplay.isEmpty()) {
+                    if (parsed.updatedDisplay != null && !parsed.updatedDisplay.isEmpty()) {
+                        lastSyncDisplay = parsed.updatedDisplay;
+                    } else if (lastSyncDisplay == null || lastSyncDisplay.isEmpty()) {
                         lastSyncDisplay = new SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(new Date());
                     }
 
-                    // Save to SharedPreferences
-                    SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                    prefs.edit()
-                            .putString(KEY_ACCOUNTS_JSON, finalJson)
-                            .putLong(KEY_SYNC_EPOCH, lastSyncEpoch)
-                            .putString(KEY_SYNC_DISPLAY, lastSyncDisplay)
-                            .apply();
-
                     if (adapter != null) {
                         adapter.updateData(accountsList);
+                        if (isUserTriggered && adapter.getCount() == 0 && !accountsList.isEmpty()) {
+                            etSearch.setText("");
+                            selectFilter("all", chipAll);
+                        }
                     }
                     updateStatsUI();
                     updateSyncTimeUI();
@@ -393,33 +518,39 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
                 } else {
                     updateSyncTimeUI();
                     if (isUserTriggered) {
-                        Toast.makeText(MainActivity.this, "⚠️ Не удалось подключиться к GitHub. Показаны сохранённые данные.", Toast.LENGTH_LONG).show();
+                        Toast.makeText(MainActivity.this, "⚠️ Не удалось подключиться к GitHub. Показаны сохранённые данные (" + accountsList.size() + " акк.).", Toast.LENGTH_LONG).show();
                     }
                 }
             });
         }).start();
     }
 
-    private String fetchUrl(String urlString) {
+    private String fetchUrl(String urlString, String acceptHeader) {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(urlString);
             conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(8000);
+            conn.setConnectTimeout(12000);
+            conn.setReadTimeout(15000);
             conn.setUseCaches(false);
-            conn.setRequestProperty("User-Agent", "ThundrSwapperApp/1.0");
+            conn.setRequestProperty("User-Agent", "ThundrSwapperApp/2.0");
+            conn.setRequestProperty("Cache-Control", "no-cache, no-store, must-revalidate");
+            conn.setRequestProperty("Pragma", "no-cache");
+            if (acceptHeader != null) {
+                conn.setRequestProperty("Accept", acceptHeader);
+            }
 
             int code = conn.getResponseCode();
             if (code == 200) {
-                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-                StringBuilder sb = new StringBuilder();
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
+                InputStreamReader isr = new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8);
+                StringBuilder sb = new StringBuilder(327680);
+                char[] buf = new char[8192];
+                int n;
+                while ((n = isr.read(buf)) != -1) {
+                    sb.append(buf, 0, n);
                 }
-                reader.close();
+                isr.close();
                 return sb.toString();
             }
         } catch (Exception e) {
@@ -435,13 +566,14 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     private String loadAssetString(String filename) {
         try {
             InputStream is = getAssets().open(filename);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line);
+            InputStreamReader isr = new InputStreamReader(is, StandardCharsets.UTF_8);
+            StringBuilder sb = new StringBuilder(327680);
+            char[] buf = new char[8192];
+            int n;
+            while ((n = isr.read(buf)) != -1) {
+                sb.append(buf, 0, n);
             }
-            reader.close();
+            isr.close();
             return sb.toString();
         } catch (Exception e) {
             return null;

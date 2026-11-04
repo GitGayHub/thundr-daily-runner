@@ -217,7 +217,27 @@ class ThundrAppHandler(http.server.SimpleHTTPRequestHandler):
             except Exception as e:
                 logger.debug(f"gh sync error: {e}")
 
+        if not synced:
+            import urllib.request
+            for url in (
+                f"https://raw.githubusercontent.com/{repo}/main/data/accounts_export.json",
+                f"https://raw.githubusercontent.com/{repo}/main/android/src/main/assets/accounts.json",
+            ):
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "ThundrSwapperApp/2.0", "Cache-Control": "no-cache"})
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        raw_bytes = resp.read()
+                        parsed_exp = json.loads(raw_bytes.decode("utf-8"))
+                        if isinstance(parsed_exp, dict) and parsed_exp.get("accounts"):
+                            (BASE_DIR / "data" / "accounts_export.json").write_bytes(raw_bytes)
+                            synced = True
+                            break
+                except Exception as e:
+                    logger.debug(f"Raw github sync error: {e}")
+
         mgr = AccountManager()
+        if synced:
+            mgr.save()
         accounts = mgr.list_accounts(enabled_only=False)
         resp_payload = {
             "ok": True,
