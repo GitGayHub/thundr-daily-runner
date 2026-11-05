@@ -181,29 +181,51 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Search Input Bar -->
+    <!-- Search Input Bar + Sort Order Button -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="10dp"
         android:layout_marginTop="8dp"
         android:layout_marginEnd="10dp"
-        android:background="@drawable/search_bg"
         android:gravity="center_vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
+        android:orientation="horizontal">
 
-        <EditText
-            android:id="@+id/etSearch"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/search_bg"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
+
+            <EditText
+                android:id="@+id/etSearch"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:background="@null"
+                android:hint="🔍 Поиск (gamasek13)..."
+                android:imeOptions="actionDone"
+                android:inputType="text"
+                android:textColor="@color/text_white"
+                android:textColorHint="@color/text_muted"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnSortOrder"
+            android:layout_width="wrap_content"
             android:layout_height="40dp"
-            android:background="@null"
-            android:hint="🔍 Поиск (например: gamasek13)..."
-            android:imeOptions="actionDone"
-            android:inputType="text"
-            android:textColor="@color/text_white"
-            android:textColorHint="@color/text_muted"
-            android:textSize="13sp" />
+            android:layout_marginStart="6dp"
+            android:background="@drawable/btn_secondary"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:text="⬆️ От 100🪙"
+            android:textAllCaps="false"
+            android:textColor="@color/primary"
+            android:textSize="12sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- Filter Chips Row 1: General Categories & Used State -->

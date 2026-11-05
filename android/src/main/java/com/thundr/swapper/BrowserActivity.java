@@ -336,15 +336,19 @@ public class BrowserActivity extends Activity {
 
     private static final String POPUP_KILLER_JS = "(function(){if(window.__tswPopup)return;window.__tswPopup=1;"
             + "function kill(){try{"
+            + "localStorage.setItem('mood_notification_seen','true');"
+            + "localStorage.setItem('downloadPopupDismissedAt',String(Date.now()));"
+            + "document.querySelectorAll('button[aria-label=\"Close notification\"]').forEach(function(b){b.click();});"
             + "document.querySelectorAll('div.fixed').forEach(function(d){"
             + "var t=d.textContent||'';"
-            + "if(/Today.s Forecast/i.test(t)&&/Google Play|Click for/i.test(t)){"
-            + "var b=d.querySelector('button.btn-circle');if(b){b.click();}else{d.style.display='none';}}"
+            + "if((/Today.s Forecast/i.test(t)&&/Google Play|Click for/i.test(t))||/Set the Mood|Learn more about Mood|Newest Feature Launches Soon/i.test(t)){"
+            + "var b=d.querySelector('button[aria-label=\"Close notification\"],button.btn-circle');if(b){b.click();}else{d.style.display='none';d.remove();}}"
             + "});"
             + "document.querySelectorAll('button').forEach(function(b){"
             + "if(/^\\s*Don.t show again\\s*$/i.test(b.textContent||'')){b.click();}});"
             + "}catch(e){}}"
-            + "new MutationObserver(kill).observe(document.documentElement,{childList:true,subtree:true});kill();})();";
+            + "new MutationObserver(kill).observe(document.documentElement,{childList:true,subtree:true});"
+            + "setInterval(kill,300);kill();})();";
     private JSONObject apiLogin(String login, String pass) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL("https://id.thundr.com/api/users/login").openConnection();
         c.setRequestMethod("POST");
@@ -424,6 +428,13 @@ public class BrowserActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (url != null && url.startsWith(ORIGIN) && !url.startsWith(SEED_URL)) {
+                    view.evaluateJavascript(POPUP_KILLER_JS, null);
+                }
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 if (url != null && url.startsWith(ORIGIN) && !url.startsWith(SEED_URL)) {
                     view.evaluateJavascript(POPUP_KILLER_JS, null);
@@ -431,9 +442,14 @@ public class BrowserActivity extends Activity {
                 if (!seeded && url != null && url.startsWith(SEED_URL) && userJson != null) {
                     seeded = true;
                     String js = "(function(){try{"
+                            + "var today=new Date().toDateString();"
                             + "localStorage.setItem('user'," + JSONObject.quote(userJson) + ");"
                             + "localStorage.setItem('settings'," + JSONObject.quote(settingsJson) + ");"
-                            + "localStorage.setItem('notification_match_history_1_last_shown',new Date().toDateString());"
+                            + "localStorage.setItem('mood_notification_seen','true');"
+                            + "localStorage.setItem('notification_mood_last_shown',today);"
+                            + "localStorage.setItem('notification_none_last_shown',today);"
+                            + "localStorage.setItem('notification_speed_dating_last_shown',today);"
+                            + "localStorage.setItem('notification_match_history_1_last_shown',today);"
                             + "localStorage.setItem('downloadPopupDismissedAt',String(Date.now()));"
                             + "}catch(e){}})();";
                     view.evaluateJavascript(js, value -> view.loadUrl(ORIGIN));

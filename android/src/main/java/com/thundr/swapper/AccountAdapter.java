@@ -27,6 +27,7 @@ public class AccountAdapter extends BaseAdapter {
 
     private String currentQuery = "";
     private String currentFilterMode = "all";
+    private boolean sortAscending = true;
 
     public AccountAdapter(Context context, List<AccountModel> accounts, OnAccountActionListener listener) {
         this.context = context;
@@ -39,6 +40,15 @@ public class AccountAdapter extends BaseAdapter {
         this.allAccounts.clear();
         this.allAccounts.addAll(newAccounts);
         applyFilters();
+    }
+
+    public void setSortAscending(boolean ascending) {
+        this.sortAscending = ascending;
+        applyFilters();
+    }
+
+    public boolean isSortAscending() {
+        return sortAscending;
     }
 
     public void setFilterMode(String mode) {
@@ -108,15 +118,32 @@ public class AccountAdapter extends BaseAdapter {
             if (a.locallyUsed && b.locallyUsed) {
                 return Long.compare(a.usedAtEpoch, b.usedAtEpoch);
             }
-            // Sort unused / Git-verified accounts by minutes DESC, then untouched before spent, then balance DESC
-            if (b.minutes != a.minutes) {
-                return Integer.compare(b.minutes, a.minutes);
+            // Keep accounts with minutes > 0 above 0-minute accounts
+            boolean aHasMin = a.minutes > 0;
+            boolean bHasMin = b.minutes > 0;
+            if (aHasMin != bHasMin) {
+                return aHasMin ? -1 : 1;
             }
+            // Untouched accounts before Git-verified spent accounts
             if (a.gitVerifiedSpent != b.gitVerifiedSpent) {
                 return a.gitVerifiedSpent ? 1 : -1;
             }
-            if (b.balance != a.balance) {
-                return Integer.compare(b.balance, a.balance);
+            if (sortAscending) {
+                // Default: smallest to largest (e.g. 100 coins -> 195 coins)
+                if (a.minutes != b.minutes) {
+                    return Integer.compare(a.minutes, b.minutes);
+                }
+                if (a.balance != b.balance) {
+                    return Integer.compare(a.balance, b.balance);
+                }
+            } else {
+                // Largest to smallest (e.g. 195 coins -> 100 coins)
+                if (b.minutes != a.minutes) {
+                    return Integer.compare(b.minutes, a.minutes);
+                }
+                if (b.balance != a.balance) {
+                    return Integer.compare(b.balance, a.balance);
+                }
             }
             return a.username.compareToIgnoreCase(b.username);
         });

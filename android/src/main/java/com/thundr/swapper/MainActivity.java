@@ -66,6 +66,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
     private TextView tvStatMinutes;
     private TextView tvStatCoins;
     private EditText etSearch;
+    private Button btnSortOrder;
 
     private TextView chipAll;
     private TextView chipMinutes;
@@ -104,6 +105,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
 
         btnRefresh.setOnClickListener(v -> syncWithGithub(true));
         btnSettings.setOnClickListener(v -> showSettingsDialog());
+        btnSortOrder.setOnClickListener(v -> toggleSortOrder());
 
         // Load cached accounts immediately (0.05s startup)
         loadCachedAccounts();
@@ -111,6 +113,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         // Setup adapter
         adapter = new AccountAdapter(this, accountsList, this);
         lvAccounts.setAdapter(adapter);
+        updateSortButtonUI();
 
         updateStatsUI();
         updateSyncTimeUI();
@@ -157,6 +160,7 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         tvStatMinutes = findViewById(R.id.tvStatMinutes);
         tvStatCoins = findViewById(R.id.tvStatCoins);
         etSearch = findViewById(R.id.etSearch);
+        btnSortOrder = findViewById(R.id.btnSortOrder);
 
         chipAll = findViewById(R.id.chipAll);
         chipMinutes = findViewById(R.id.chipMinutes);
@@ -286,7 +290,31 @@ public class MainActivity extends Activity implements AccountAdapter.OnAccountAc
         }
         if (adapter != null) {
             adapter.setFilterMode(mode);
+            lvAccounts.setSelection(0);
             checkEmptyState();
+        }
+    }
+
+    private void toggleSortOrder() {
+        if (adapter == null) return;
+        boolean nextAsc = !adapter.isSortAscending();
+        adapter.setSortAscending(nextAsc);
+        updateSortButtonUI();
+        lvAccounts.setSelection(0);
+        String msg = nextAsc
+                ? "⬆️ Сортировка: от меньшего к большему (100🪙 → 195🪙)"
+                : "⬇️ Сортировка: от большего к меньшему (макс → 100🪙)";
+        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+    }
+
+    private void updateSortButtonUI() {
+        if (btnSortOrder == null || adapter == null) return;
+        if (adapter.isSortAscending()) {
+            btnSortOrder.setText("⬆️ От 100🪙");
+            btnSortOrder.setTextColor(Color.parseColor("#38BDF8"));
+        } else {
+            btnSortOrder.setText("⬇️ От макс");
+            btnSortOrder.setTextColor(Color.parseColor("#F59E0B"));
         }
     }
 
